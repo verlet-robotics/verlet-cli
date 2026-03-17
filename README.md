@@ -19,7 +19,7 @@ pip install verlet
 For development:
 
 ```bash
-git clone https://github.com/verlet/verlet-cli.git
+git clone https://github.com/verlet-robotics/verlet-cli.git
 cd verlet-cli
 pip install -e .
 ```

@@ -7,7 +7,7 @@ INSTALL_DIR="$HOME/.verlet"
 VENV_DIR="$INSTALL_DIR/venv"
 BIN_DIR="$HOME/.local/bin"
 PACKAGE="verlet"
-REPO="https://github.com/verlet/verlet-cli.git"
+REPO="https://github.com/verlet-robotics/verlet-cli.git"
 
 info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()    { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
