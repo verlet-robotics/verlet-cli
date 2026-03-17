@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "verlet"
+version = "0.1.0"
+description = "Download and explore Verlet datasets"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",
+    "httpx>=0.24",
+    "rich>=13.0",
+]
+
+[project.scripts]
+verlet = "verlet.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/verlet"]
