@@ -1,1 +1,1 @@
-"""Ego modality commands."""
+"""Ego data commands."""

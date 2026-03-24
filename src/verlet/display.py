@@ -1,79 +1,81 @@
-"""Shared Rich display utilities for tables and formatting."""
-
-from __future__ import annotations
-
-from rich.console import Console
+"""Rich display helpers for CLI output."""
 from rich.table import Table
+from rich.console import Console
 
 console = Console()
 
 
-def format_duration(seconds: float) -> str:
-    """Format seconds as human-readable duration."""
-    if seconds < 60:
-        return f"{seconds:.0f}s"
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    if minutes < 60:
-        return f"{minutes}m {secs:02d}s"
-    hours = minutes // 60
-    mins = minutes % 60
-    return f"{hours}h {mins:02d}m"
+def format_duration(secs: float) -> str:
+    if secs <= 0:
+        return "---"
+    h = int(secs // 3600)
+    m = int((secs % 3600) // 60)
+    s = int(secs % 60)
+    if h > 0:
+        return f"{h}h {m}m"
+    if m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
 
 
-def format_size(nbytes: int) -> str:
-    """Format bytes as human-readable size."""
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if nbytes < 1024:
-            return f"{nbytes:.1f} {unit}"
-        nbytes /= 1024
-    return f"{nbytes:.1f} PB"
+def format_bytes(b: int | None) -> str:
+    if not b or b <= 0:
+        return "---"
+    if b >= 1e9:
+        return f"{b / 1e9:.1f} GB"
+    if b >= 1e6:
+        return f"{b / 1e6:.1f} MB"
+    return f"{b / 1e3:.0f} KB"
 
 
-def category_table(categories: list[dict]) -> Table:
-    """Build a Rich table for category listing."""
-    table = Table(title="EgoDex Catalog")
-    table.add_column("Category", style="bold cyan")
-    table.add_column("Subcategory", style="white")
-    table.add_column("Segments", justify="right", style="green")
-    table.add_column("Duration", justify="right", style="yellow")
-
-    for cat in categories:
-        first = True
-        for sub in cat.get("subcategories", []):
-            table.add_row(
-                cat["category"] if first else "",
-                sub["subcategory"],
-                str(sub["segmentCount"]),
-                format_duration(sub["totalDurationSec"]),
-            )
-            first = False
-        if not cat.get("subcategories"):
-            table.add_row(
-                cat["category"],
-                "-",
-                str(cat.get("segmentCount", 0)),
-                format_duration(cat.get("totalDurationSec", 0)),
-            )
-
+def ego_segment_table(segments: list[dict]) -> Table:
+    table = Table(title="Ego Segments")
+    table.add_column("ID", style="dim")
+    table.add_column("Category")
+    table.add_column("Subcategory")
+    table.add_column("Duration", justify="right")
+    for seg in segments:
+        table.add_row(
+            seg["id"][:8],
+            seg.get("category", "---"),
+            seg.get("subcategory", "---"),
+            format_duration(seg.get("duration_s", 0)),
+        )
     return table
 
 
-def segment_table(segments: list[dict]) -> Table:
-    """Build a Rich table for detailed segment listing."""
-    table = Table(title="Segments")
-    table.add_column("ID", style="bold")
-    table.add_column("Category", style="cyan")
-    table.add_column("Subcategory", style="white")
-    table.add_column("Station", style="magenta")
-    table.add_column("Duration", justify="right", style="yellow")
-
-    for seg in segments:
+def teleop_dataset_table(datasets: list[dict]) -> Table:
+    table = Table(title="Teleop Datasets")
+    table.add_column("ID", style="dim")
+    table.add_column("Task Name")
+    table.add_column("Episodes", justify="right")
+    table.add_column("Frames", justify="right")
+    table.add_column("Duration", justify="right")
+    table.add_column("Size", justify="right")
+    for ds in datasets:
         table.add_row(
-            seg["id"],
-            seg.get("category", ""),
-            seg.get("subcategory", ""),
-            seg.get("station", ""),
-            format_duration(seg.get("durationSec", 0)),
+            ds["id"][:8],
+            ds["task_name"],
+            str(ds["total_episodes"]),
+            f"{ds['total_frames']:,}",
+            format_duration(ds["total_duration_secs"]),
+            format_bytes(ds.get("total_bytes")),
+        )
+    return table
+
+
+def teleop_episode_table(episodes: list[dict]) -> Table:
+    table = Table(title="Episodes")
+    table.add_column("Index", justify="right")
+    table.add_column("Frames", justify="right")
+    table.add_column("Duration", justify="right")
+    table.add_column("Cameras", justify="right")
+    for ep in episodes:
+        cameras = len(ep.get("video_paths") or {})
+        table.add_row(
+            str(ep["episode_index"]),
+            str(ep["frame_count"]),
+            format_duration(ep["duration_secs"]),
+            str(cameras),
         )
     return table
