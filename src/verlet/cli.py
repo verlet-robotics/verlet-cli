@@ -9,7 +9,7 @@ from verlet.display import console
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="verlet")
+@click.version_option(version="0.2.1", prog_name="verlet")
 def cli():
     """Verlet Data CLI — download ego and teleop datasets."""
     pass
@@ -40,6 +40,45 @@ def login(api_url: str | None):
         raise SystemExit(1)
     except Exception as e:
         console.print(f"[red]Connection error: {e}[/red]")
+        raise SystemExit(1)
+
+
+@cli.command()
+def update():
+    """Update verlet to the latest version."""
+    import subprocess
+    import sys
+
+    current = "0.2.0"
+    console.print(f"[dim]Current version: {current}[/dim]")
+    console.print("Checking for updates...")
+
+    try:
+        resp = httpx.get("https://pypi.org/pypi/verlet/json", timeout=10.0)
+        resp.raise_for_status()
+        latest = resp.json()["info"]["version"]
+    except Exception:
+        console.print("[yellow]Could not check PyPI for latest version. Upgrading anyway...[/yellow]")
+        latest = None
+
+    if latest and latest == current:
+        console.print(f"[green]Already up to date (v{current})[/green]")
+        return
+
+    if latest:
+        console.print(f"[bold]Updating v{current} -> v{latest}[/bold]")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "verlet"],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        version_label = f"v{latest}" if latest else "latest"
+        console.print(f"[green]Updated to {version_label}[/green]")
+    else:
+        console.print(f"[red]Update failed:[/red]\n{result.stderr.strip()}")
         raise SystemExit(1)
 
 
