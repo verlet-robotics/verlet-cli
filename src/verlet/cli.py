@@ -9,7 +9,7 @@ from verlet.display import console
 
 
 @click.group()
-@click.version_option(version="0.2.1", prog_name="verlet")
+@click.version_option(version="0.3.0", prog_name="verlet")
 def cli():
     """Verlet Data CLI — download ego and teleop datasets."""
     pass
