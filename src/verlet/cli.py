@@ -1,5 +1,5 @@
 """Verlet CLI entry point."""
-import asyncio
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 import click
 import httpx
@@ -7,9 +7,14 @@ import httpx
 from verlet.config import get_api_url, save_credentials
 from verlet.display import console
 
+try:
+    __version__ = _pkg_version("verlet")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
+
 
 @click.group()
-@click.version_option(version="0.3.0", prog_name="verlet")
+@click.version_option(version=__version__, prog_name="verlet")
 def cli():
     """Verlet Data CLI — download ego and teleop datasets."""
     pass
@@ -49,7 +54,7 @@ def update():
     import subprocess
     import sys
 
-    current = "0.2.0"
+    current = __version__
     console.print(f"[dim]Current version: {current}[/dim]")
     console.print("Checking for updates...")
 

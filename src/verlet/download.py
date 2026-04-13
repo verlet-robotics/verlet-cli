@@ -1,32 +1,53 @@
 """Shared download engine for ego and teleop datasets."""
 import asyncio
 from pathlib import Path
-from typing import Callable, Awaitable
+from typing import Awaitable, Callable
+from urllib.parse import urlparse
 
 import httpx
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, DownloadColumn, TransferSpeedColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
+
+
+def _apply_url_extension(local_path: Path, url: str) -> Path:
+    """If local_path has no suffix, inherit the extension from the presigned URL.
+
+    Ego logical keys like ``{segment_id}/overlay`` have no extension; the real
+    object in R2 is ``overlay.mp4`` (or ``.rrd``, etc). Without this, files
+    land on disk as extensionless blobs and video players reject them.
+    """
+    if local_path.suffix:
+        return local_path
+    url_name = Path(urlparse(url).path).name
+    if "." not in url_name:
+        return local_path
+    ext = "." + url_name.rsplit(".", 1)[-1]
+    return local_path.with_name(local_path.name + ext)
 
 
 async def download_file(
     client: httpx.AsyncClient,
     url: str,
     dest: Path,
-    progress: Progress,
-    task_id: int,
-) -> None:
-    """Download a single file from a presigned URL."""
+) -> int:
+    """Download a single file from a presigned URL. Returns bytes written."""
     dest.parent.mkdir(parents=True, exist_ok=True)
 
+    written = 0
     async with client.stream("GET", url) as resp:
         resp.raise_for_status()
-        total = int(resp.headers.get("content-length", 0))
-        if total:
-            progress.update(task_id, total=total)
-
         with open(dest, "wb") as f:
             async for chunk in resp.aiter_bytes(chunk_size=1024 * 256):
                 f.write(chunk)
-                progress.advance(task_id, len(chunk))
+                written += len(chunk)
+    return written
 
 
 PresignFn = Callable[[str], Awaitable[str]]
@@ -83,8 +104,10 @@ async def download_files(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
-            DownloadColumn(),
-            TransferSpeedColumn(),
+            MofNCompleteColumn(),
+            TextColumn("files"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
         ) as progress:
             overall = progress.add_task(
                 f"Downloading {len(plan)} files",
@@ -95,15 +118,11 @@ async def download_files(
                 nonlocal downloaded
                 async with semaphore:
                     url = await presign_fn(key)
-                    file_task = progress.add_task(
-                        local_path.name,
-                        total=None,
-                    )
+                    resolved = _apply_url_extension(local_path, url)
                     try:
-                        await download_file(client, url, local_path, progress, file_task)
+                        await download_file(client, url, resolved)
                         downloaded += 1
                     finally:
-                        progress.remove_task(file_task)
                         progress.advance(overall)
 
             tasks = [download_one(key, path) for key, path in plan]

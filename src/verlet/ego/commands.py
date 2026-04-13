@@ -13,6 +13,24 @@ def ego_group():
     pass
 
 
+def _resolve_segment(segments: list[dict], ident: str) -> dict:
+    """Resolve a full UUID or short prefix to a single segment dict.
+
+    Users see truncated 8-char IDs in `verlet ego list`, so `info` and other
+    commands accept any prefix as long as it's unambiguous.
+    """
+    matches = [s for s in segments if s["id"].startswith(ident)]
+    if not matches:
+        raise click.ClickException(f"Segment '{ident}' not found.")
+    if len(matches) > 1:
+        ids = ", ".join(m["id"][:12] for m in matches[:5])
+        raise click.ClickException(
+            f"Segment prefix '{ident}' is ambiguous ({len(matches)} matches: {ids}...). "
+            "Use a longer prefix."
+        )
+    return matches[0]
+
+
 @ego_group.command("list")
 @click.option("--category", default=None, help="Filter by category")
 def ego_list(category: str | None):
@@ -36,15 +54,17 @@ def ego_list(category: str | None):
 @ego_group.command("info")
 @click.argument("segment_id")
 def ego_info(segment_id: str):
-    """Show details for a specific ego segment."""
+    """Show details for a specific ego segment.
+
+    SEGMENT_ID may be a full UUID or any unambiguous prefix (e.g. the 8-char
+    ID shown by `verlet ego list`).
+    """
     from verlet.ego.catalog import fetch_ego_catalog
 
     catalog = asyncio.run(fetch_ego_catalog())
     segments = catalog.get("segments", [])
 
-    seg = next((s for s in segments if s["id"] == segment_id), None)
-    if not seg:
-        raise click.ClickException(f"Segment '{segment_id}' not found.")
+    seg = _resolve_segment(segments, segment_id)
 
     console.print(f"\n[bold]Segment:[/bold]  {seg['id']}")
     console.print(f"[bold]Category:[/bold] {seg.get('category', '---')}")
@@ -55,8 +75,10 @@ def ego_info(segment_id: str):
 
     cam = seg.get("camera_info")
     if cam and isinstance(cam, dict):
-        console.print(f"[bold]Camera:[/bold]   fx={cam.get('fx', '?')} fy={cam.get('fy', '?')} "
-                       f"ppx={cam.get('ppx', '?')} ppy={cam.get('ppy', '?')}")
+        console.print(
+            f"[bold]Camera:[/bold]   fx={cam.get('fx', '?')} fy={cam.get('fy', '?')} "
+            f"ppx={cam.get('ppx', '?')} ppy={cam.get('ppy', '?')}"
+        )
 
     assets = []
     if seg.get("has_overlay"):
@@ -65,15 +87,21 @@ def ego_info(segment_id: str):
         assets.append("rrd")
     if seg.get("has_egodex"):
         assets.append("egodex")
+    if seg.get("has_clean"):
+        assets.append("clean")
     console.print(f"[bold]Assets:[/bold]   {', '.join(assets) if assets else 'none'}")
 
 
 @ego_group.command("download")
 @click.option("-o", "--output", default="./verlet-data", help="Output directory")
 @click.option("--category", default=None, help="Filter by category")
-@click.option("--asset", "asset_types", multiple=True,
-              type=click.Choice(["overlay", "rrd", "egodex", "clean"]),
-              help="Asset types to download (default: overlay)")
+@click.option(
+    "--asset",
+    "asset_types",
+    multiple=True,
+    type=click.Choice(["overlay", "rrd", "egodex", "clean"]),
+    help="Asset types to download (default: overlay)",
+)
 @click.option("--parallel", default=8, help="Max concurrent downloads")
 @click.option("--dry-run", is_flag=True, help="Show what would be downloaded")
 def ego_download(
@@ -84,9 +112,13 @@ def ego_download(
     dry_run: bool,
 ):
     """Download ego segment assets."""
-    from verlet.ego.catalog import fetch_ego_catalog, presign_ego_asset
     from verlet.download import download_files
-    from verlet.license import check_license_accepted, prompt_license_acceptance, write_license_file
+    from verlet.ego.catalog import fetch_ego_catalog, presign_ego_asset
+    from verlet.license import (
+        check_license_accepted,
+        prompt_license_acceptance,
+        write_license_file,
+    )
 
     if not asset_types:
         asset_types = ("overlay",)
@@ -103,21 +135,21 @@ def ego_download(
         console.print("[dim]No matching ego segments found.[/dim]")
         return
 
-    # Build download plan: (key, asset_type) for segments that have the requested asset
-    plan: list[tuple[str, str]] = []  # (segment_id, asset_type)
+    plan: list[tuple[str, str]] = []
     for seg in segments:
         for asset in asset_types:
-            flag = f"has_{asset}"
-            if seg.get(flag, False):
+            if seg.get(f"has_{asset}", False):
                 plan.append((seg["id"], asset))
 
     if not plan:
         console.print("[dim]No downloadable assets match your filters.[/dim]")
         return
 
-    console.print(f"[bold]{len(segments)}[/bold] segments, "
-                  f"[bold]{len(plan)}[/bold] assets to download "
-                  f"({', '.join(asset_types)})")
+    console.print(
+        f"[bold]{len(segments)}[/bold] segments, "
+        f"[bold]{len(plan)}[/bold] assets to download "
+        f"({', '.join(asset_types)})"
+    )
 
     dest_root = Path(output) / "ego"
 
@@ -129,11 +161,7 @@ def ego_download(
             console.print(f"  ... and {len(plan) - 30} more")
         return
 
-    # Download using presign-per-file pattern
-    # Build keys list where each "key" is "{segment_id}/{asset}.mp4" (logical)
     keys = [f"{seg_id}/{asset}" for seg_id, asset in plan]
-
-    # Map logical keys to presign calls
     _plan_lookup = {f"{seg_id}/{asset}": (seg_id, asset) for seg_id, asset in plan}
 
     async def presign(key: str) -> str:

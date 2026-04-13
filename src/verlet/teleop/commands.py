@@ -14,6 +14,24 @@ def teleop_group():
     pass
 
 
+def _resolve_dataset_id(datasets: list[dict], ident: str) -> str:
+    """Resolve a full UUID or unambiguous short prefix to a dataset id.
+
+    Users see truncated 8-char IDs in `verlet teleop list`, so other commands
+    accept any prefix.
+    """
+    matches = [d for d in datasets if d["id"].startswith(ident)]
+    if not matches:
+        raise click.ClickException(f"Dataset '{ident}' not found.")
+    if len(matches) > 1:
+        ids = ", ".join(m["id"][:12] for m in matches[:5])
+        raise click.ClickException(
+            f"Dataset prefix '{ident}' is ambiguous ({len(matches)} matches: {ids}...). "
+            "Use a longer prefix."
+        )
+    return matches[0]["id"]
+
+
 @teleop_group.command("list")
 @click.option("--detailed", is_flag=True, help="Show episode-level breakdown")
 def teleop_list(detailed: bool):
@@ -47,8 +65,19 @@ def teleop_list(detailed: bool):
 @teleop_group.command("info")
 @click.argument("dataset_id")
 def teleop_info(dataset_id: str):
-    """Show details for a specific teleop dataset."""
-    from verlet.teleop.catalog import fetch_teleop_dataset, fetch_teleop_files
+    """Show details for a specific teleop dataset.
+
+    DATASET_ID may be a full UUID or any unambiguous prefix (e.g. the 8-char
+    ID shown by `verlet teleop list`).
+    """
+    from verlet.teleop.catalog import (
+        fetch_teleop_catalog,
+        fetch_teleop_dataset,
+        fetch_teleop_files,
+    )
+
+    catalog = asyncio.run(fetch_teleop_catalog())
+    dataset_id = _resolve_dataset_id(catalog.get("datasets", []), dataset_id)
 
     detail = asyncio.run(fetch_teleop_dataset(dataset_id))
     ds = detail["dataset"]
