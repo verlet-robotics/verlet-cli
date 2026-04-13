@@ -116,8 +116,19 @@ def teleop_info(dataset_id: str):
 @click.option("-o", "--output", default="./verlet-data", help="Output directory")
 @click.option("--task", "task_name", default=None, help="Filter by task name")
 @click.option("--parallel", default=8, help="Max concurrent downloads")
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Re-download files even when they already exist on disk",
+)
 @click.option("--dry-run", is_flag=True, help="Show what would be downloaded")
-def teleop_download(output: str, task_name: str | None, parallel: int, dry_run: bool):
+def teleop_download(
+    output: str,
+    task_name: str | None,
+    parallel: int,
+    force: bool,
+    dry_run: bool,
+):
     """Download teleop datasets in LeRobot v2.1 format."""
     from verlet.teleop.catalog import fetch_teleop_catalog, fetch_teleop_files, presign_teleop_file
     from verlet.download import download_files
@@ -143,6 +154,8 @@ def teleop_download(output: str, task_name: str | None, parallel: int, dry_run: 
 
     dest_root = Path(output)
     total_downloaded = 0
+    total_skipped = 0
+    total_failed = 0
 
     for ds in datasets:
         task_slug = re.sub(r"[^a-zA-Z0-9_-]", "-", ds["task_name"]).strip("-").lower()
@@ -163,7 +176,7 @@ def teleop_download(output: str, task_name: str | None, parallel: int, dry_run: 
         async def presign(key: str) -> str:
             return await presign_teleop_file(ds["id"], key)
 
-        count = asyncio.run(
+        result = asyncio.run(
             download_files(
                 keys=keys,
                 dest_dir=dataset_dir,
@@ -171,12 +184,20 @@ def teleop_download(output: str, task_name: str | None, parallel: int, dry_run: 
                 strip_prefix=prefix,
                 parallel=parallel,
                 dry_run=dry_run,
+                skip_existing=not force,
             )
         )
-        total_downloaded += count
+        total_downloaded += result.downloaded
+        total_skipped += result.skipped
+        total_failed += result.failed
 
-        if not dry_run and count > 0:
+        if not dry_run and result.downloaded > 0:
             write_license_file(dataset_dir)
 
     if not dry_run:
-        console.print(f"\n[green]Downloaded {total_downloaded} file(s) to {dest_root}[/green]")
+        summary = [f"[green]{total_downloaded}[/green] downloaded"]
+        if total_skipped:
+            summary.append(f"[dim]{total_skipped} already on disk[/dim]")
+        if total_failed:
+            summary.append(f"[red]{total_failed} failed[/red]")
+        console.print(f"\n{', '.join(summary)} -> {dest_root}")
