@@ -14,8 +14,23 @@ dependencies = [
     "rich>=13.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "freezegun>=1.4",
+]
+
 [project.scripts]
 verlet = "verlet.cli:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/verlet"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "staging: integration tests that hit staging-api.verlet.co (skipped unless VERLET_STAGING_TEST=1)",
+]
