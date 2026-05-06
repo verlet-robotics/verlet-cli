@@ -108,9 +108,11 @@ def update():
 
 
 # Register subcommand groups
+from verlet.auth.commands import auth_group  # noqa: E402
 from verlet.ego.commands import ego_group  # noqa: E402
 from verlet.teleop.commands import teleop_group  # noqa: E402
 
+cli.add_command(auth_group)
 cli.add_command(ego_group)
 cli.add_command(teleop_group)
 
