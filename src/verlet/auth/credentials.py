@@ -120,33 +120,39 @@ def save_credentials(doc: CredentialsDoc) -> None:
         raise
 
 
-def get_profile(name: str) -> dict[str, Any] | None:
+def get_profile(profile_name: str) -> dict[str, Any] | None:
     """Return the named profile entry, or ``None`` if it doesn't exist."""
-    return load_credentials()["profiles"].get(name)
+    return load_credentials()["profiles"].get(profile_name)
 
 
-def upsert_profile(name: str, *, kind: ProfileKind, **fields: Any) -> None:
-    """Create or replace the named profile with ``{"kind": kind, **fields}``."""
+def upsert_profile(profile_name: str, *, kind: ProfileKind, **fields: Any) -> None:
+    """Create or replace the named profile with ``{"kind": kind, **fields}``.
+
+    The first parameter is the PROFILE name (top-level key under ``profiles``).
+    Note: ``fields`` may include a ``name`` key for ``kind=pat`` profiles —
+    that's the PAT's own user-supplied name and is stored verbatim. We use
+    ``profile_name`` as the positional name here to avoid the collision.
+    """
     doc = load_credentials()
     entry: dict[str, Any] = {"kind": kind, **fields}
-    doc["profiles"][name] = entry
+    doc["profiles"][profile_name] = entry
     save_credentials(doc)
 
 
-def delete_profile(name: str) -> bool:
+def delete_profile(profile_name: str) -> bool:
     """Remove the named profile. Return True if it existed, False otherwise."""
     doc = load_credentials()
-    if name in doc["profiles"]:
-        del doc["profiles"][name]
+    if profile_name in doc["profiles"]:
+        del doc["profiles"][profile_name]
         save_credentials(doc)
         return True
     return False
 
 
-def set_default_profile(name: str) -> None:
+def set_default_profile(profile_name: str) -> None:
     """Set the file's ``default_profile`` field. Caller must ensure the profile exists."""
     doc = load_credentials()
-    doc["default_profile"] = name
+    doc["default_profile"] = profile_name
     save_credentials(doc)
 
 

@@ -1,18 +1,26 @@
-"""``verlet auth`` Click group — login + logout subcommands.
+"""``verlet auth`` Click group — login + logout + tokens subcommands.
 
-Plan 28-03 will add an ``auth tokens`` sibling subgroup; Plan 28-04 will add
-``auth status``. The legacy top-level ``verlet login`` command stays in
-``cli.py`` as the showcase access-code shim until Plan 28-04 finalizes its
-deprecation.
+Plan 28-04 will add ``auth status`` alongside the existing groups. The
+legacy top-level ``verlet login`` command stays in ``cli.py`` as the
+showcase access-code shim until Plan 28-04 finalizes its deprecation.
 """
 from __future__ import annotations
 
+import re
+from datetime import datetime, timedelta, timezone
+
 import click
+from rich.console import Console
+from rich.table import Table
 
 from .credentials import load_credentials
 from .login import device_flow_login
 from .logout import logout as do_logout
 from .profiles import ProfileNotFoundError, resolve_profile_name
+from .tokens import create_pat as _create_pat
+from .tokens import list_pats as _list_pats
+from .tokens import revoke_pat as _revoke_pat
+from .tokens import show_pat as _show_pat
 
 
 @click.group(name="auth")
@@ -80,3 +88,145 @@ def cmd_logout(ctx: click.Context) -> None:
     except ProfileNotFoundError as exc:
         click.echo(str(exc), err=True)
         raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# auth tokens — Personal Access Tokens (PATs)
+# ---------------------------------------------------------------------------
+
+_DURATION_RE = re.compile(r"^(\d+)([dwmy])$", re.IGNORECASE)
+_DURATION_UNITS = {"d": 1, "w": 7, "m": 30, "y": 365}
+
+
+def _parse_duration(value: str | None) -> str | None:
+    """Translate ``30d`` / ``2w`` / ``6m`` / ``1y`` into ISO-8601 ``expires_at``.
+
+    Returns None when ``value`` is None / empty (no expiry). Raises
+    ``click.BadParameter`` for malformed input so the user sees the same
+    Click error chrome they'd get from any other option.
+    """
+    if not value:
+        return None
+    m = _DURATION_RE.match(value)
+    if not m:
+        raise click.BadParameter(
+            f"--expires-in must look like '30d' / '90d' / '1y' (got '{value}')."
+        )
+    qty, unit = int(m.group(1)), m.group(2).lower()
+    days = qty * _DURATION_UNITS[unit]
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+
+@auth_group.group("tokens")
+def tokens_group() -> None:
+    """Manage Personal Access Tokens (PATs)."""
+
+
+@tokens_group.command("create")
+@click.option(
+    "--name",
+    required=True,
+    help="PAT name (1-255 chars, unique among your active PATs).",
+)
+@click.option(
+    "--scope",
+    "scopes",
+    multiple=True,
+    help=(
+        "One of: read:catalog, read:datasets, read:ego_segments, "
+        "read:account, read:purchases, write:push, write:tokens. "
+        "Pass --scope multiple times to grant multiple scopes."
+    ),
+)
+@click.option(
+    "--expires-in",
+    "expires_in",
+    default=None,
+    help="Duration like 30d, 90d, 1y (default: never expires).",
+)
+@click.option(
+    "--save-to",
+    default=None,
+    help="Profile to save the token to (default: active profile).",
+)
+@click.option(
+    "--no-save",
+    is_flag=True,
+    default=False,
+    help="Print the plaintext PAT but do not write it to credentials.json.",
+)
+@click.pass_context
+def cmd_tokens_create(
+    ctx: click.Context,
+    name: str,
+    scopes: tuple[str, ...],
+    expires_in: str | None,
+    save_to: str | None,
+    no_save: bool,
+) -> None:
+    """Mint a new Personal Access Token."""
+    expires_at = _parse_duration(expires_in)
+    _create_pat(
+        name=name,
+        scopes=list(scopes),
+        expires_at=expires_at,
+        save_to=save_to,
+        no_save=no_save,
+        profile_name=ctx.obj.get("profile"),
+    )
+
+
+@tokens_group.command("list")
+@click.pass_context
+def cmd_tokens_list(ctx: click.Context) -> None:
+    """List all active PATs (plaintext is never displayed)."""
+    items = _list_pats(profile_name=ctx.obj.get("profile"))
+    console = Console()
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("ID")
+    table.add_column("Name")
+    table.add_column("Scopes")
+    table.add_column("Last 4")
+    table.add_column("Expires")
+    table.add_column("Last used")
+    for item in items:
+        table.add_row(
+            (item["id"][:8] + "..."),
+            item["name"],
+            ", ".join(item["scopes"]),
+            item["last_4"],
+            item.get("expires_at") or "never",
+            item.get("last_used_at") or "never",
+        )
+    console.print(table)
+
+
+@tokens_group.command("revoke")
+@click.argument("id_or_name")
+@click.pass_context
+def cmd_tokens_revoke(ctx: click.Context, id_or_name: str) -> None:
+    """Revoke a PAT by id or name (idempotent)."""
+    ok = _revoke_pat(id_or_name, profile_name=ctx.obj.get("profile"))
+    if not ok:
+        raise SystemExit(1)
+
+
+@tokens_group.command("show")
+@click.argument("id_or_name")
+@click.pass_context
+def cmd_tokens_show(ctx: click.Context, id_or_name: str) -> None:
+    """Show metadata for a single PAT (plaintext is never displayed)."""
+    item = _show_pat(id_or_name, profile_name=ctx.obj.get("profile"))
+    if item is None:
+        click.echo(f"No PAT with id/name '{id_or_name}'.", err=True)
+        raise SystemExit(1)
+    for key in (
+        "id",
+        "name",
+        "scopes",
+        "last_4",
+        "created_at",
+        "expires_at",
+        "last_used_at",
+    ):
+        click.echo(f"{key}: {item.get(key)}")
