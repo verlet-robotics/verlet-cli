@@ -27,6 +27,18 @@ def cli(ctx: click.Context, profile: str | None) -> None:
     ctx.ensure_object(dict)
     ctx.obj["profile"] = profile
 
+    # Best-effort one-shot legacy migration. Never block the CLI on failure —
+    # users with a healthy ~/.verlet/credentials.json should not pay for a
+    # corrupt or unreadable legacy ~/.verlet/token.json.
+    try:
+        from verlet.auth.migration import migrate_legacy_token_json
+
+        migrate_legacy_token_json()
+    except Exception as exc:  # pragma: no cover — defensive guard
+        import sys
+
+        sys.stderr.write(f"warning: legacy migration skipped: {exc}\n")
+
 
 @cli.command()
 @click.option("--api-url", default=None, help="Override API URL")
