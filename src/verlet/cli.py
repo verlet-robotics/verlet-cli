@@ -15,9 +15,17 @@ except PackageNotFoundError:
 
 @click.group()
 @click.version_option(version=__version__, prog_name="verlet")
-def cli():
+@click.option(
+    "--profile",
+    default=None,
+    envvar="VERLET_PROFILE",
+    help="Named credential profile (default: 'default').",
+)
+@click.pass_context
+def cli(ctx: click.Context, profile: str | None) -> None:
     """Verlet Data CLI — download ego and teleop datasets."""
-    pass
+    ctx.ensure_object(dict)
+    ctx.obj["profile"] = profile
 
 
 @cli.command()
