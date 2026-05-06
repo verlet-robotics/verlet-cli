@@ -44,10 +44,13 @@ def respx_mock():
 
 @pytest.fixture
 def cli_runner():
-    """Click ``CliRunner`` with ``mix_stderr=False`` so stdout and stderr can be
-    asserted on separately.
+    """Click ``CliRunner`` returning separated stdout / stderr.
+
+    ``CliRunner.__init__`` lost the ``mix_stderr`` kwarg in Click 8.2+
+    (and it stays gone in 9.x); separated stderr is now the default
+    behavior, so tests can assert on ``result.stderr`` directly.
     """
-    return CliRunner(mix_stderr=False)
+    return CliRunner()
 
 
 @pytest.fixture
