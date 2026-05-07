@@ -5,6 +5,131 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-05-08
+
+CLI 1.0 polish release — wires the merged Phase 30 super-phase (formats +
+bundles + distribution) end-to-end. Adds server-side format conversion,
+HuggingFace push, the full `verlet bundles` command group, install-method-aware
+self-update, opt-in version-ping telemetry, and a maintainer-driven
+`verlet docs export` MDX generator. Ships the PyPI Trusted Publishing release
+workflow with pipx + uvx smoke matrix; **PyPI publish gated on first-run
+admin approval — see Distribution notes below**.
+
+### Added (Phase 30 — Format Conversion + HuggingFace Push)
+
+- **`verlet datasets download <slug> --format <fmt>`** — server-side conversion
+  to any of 8 formats (`lerobot-v2`, `lerobot-v3`, `hdf5`, `zarr`, `rlds`,
+  `rosbag`, `robodm`, `egomimic`). Foreground polling by default;
+  `--detach` returns the `job_id` immediately so CI / automation can poll on
+  their own cadence. Native (`lerobot-v2`) returns presigned URLs in 1
+  round-trip; non-native formats return 202 + job-id and the CLI polls
+  `/api/platform/v1/datasets/jobs/{id}` until the manifest is ready.
+  (CLIDATA-07)
+- **`verlet datasets push <slug> --to huggingface://org/repo`** — push a
+  purchased / converted dataset to HuggingFace via the existing server-side
+  `/downloads/push` pipeline. HuggingFace token resolved from
+  `verlet auth tokens set hf <token>` (preferred) → `HF_TOKEN` env →
+  verbatim `NO_HF_TOKEN_MSG` UsageError. (CLIDATA-07)
+- **`verlet datasets jobs [<id>]`** — reattach to a specific conversion job's
+  polling loop; bare `verlet datasets jobs` short-circuits with a "listing
+  endpoint not available" message and 0 HTTP calls (server listing endpoint
+  deferred). (CLIDATA-07)
+
+### Added (Phase 30 — `verlet bundles`)
+
+- **`verlet bundles browse`** — anonymous public research-bundle catalog via
+  `/api/platform/v1/catalog/ego/research`. No auth required. (CLIBUNDLE-01)
+- **`verlet bundles redeem <code>`** — redeem a research-access code; mints
+  a `bundle_grant` profile in `~/.verlet/credentials.json` with the
+  server-issued time-bounded token. Idempotent: re-redeeming replaces the
+  profile entry rather than merging fields, since the prior token is dead the
+  moment the server reissues. (CLIBUNDLE-02)
+- **`verlet bundles list [--all]`** — list active entitlements (default) or
+  every entitlement including expired/revoked (`--all`). Unified
+  `GET /api/platform/v1/bundles` merges research grants + purchased bundles
+  into one view. (CLIBUNDLE-03)
+- **`verlet bundles info <id>`** — bundle detail with included dataset slugs,
+  segment categories, format availability, license terms, and citation
+  string for research bundles. (CLIBUNDLE-04)
+- **`verlet bundles download <id> [--format <fmt>]`** — fan out per-dataset
+  downloads of every dataset in a bundle. Processed-only enforced at
+  parse-time; `--variant raw` rejected with the verbatim
+  `BUNDLES_ARE_PROCESSED_ONLY` message before any HTTP work starts.
+  (CLIBUNDLE-05)
+- **`verlet bundles export-manifest <id> --out manifest.json`** — emit a
+  portable, time-bounded JSON manifest for offline / air-gapped pipelines.
+  Fails fast on 202 (conversion enqueued) — air-gapped pipelines need URLs
+  not job-ids. (CLIBUNDLE-06)
+
+### Added (Phase 30 — Distribution + Telemetry + Docs)
+
+- **`verlet update`** rewritten install-method-aware. Detects pipx / brew /
+  uvx / unknown via `sys.executable` path patterns; runs the correct upgrade
+  command per install method. Replaces the broken 0.7.x `pip install
+  --upgrade` stub that corrupted pipx envs in some configurations.
+  Locale-safe (`LANG=LC_ALL=C.UTF-8` subprocess). (CLIDIST-04)
+- **`verlet config telemetry status|enable|disable`** — opt-in version-ping
+  telemetry stored in `~/.verlet/config.json`. **Default OFF.** When
+  enabled, payload contains only `cli_version`, `python_version`, and
+  `platform/arch` shipped via the `User-Agent` header on every CLI → backend
+  request. No command names, paths, dataset slugs, or identities ever leave
+  the machine. Strict `is True` check guards against truthy-but-not-True
+  config values. (CLIDIST-05)
+- **`verlet docs export --out <dir>`** — maintainer-driven Click → Fumadocs
+  MDX generator. Walks `cli.commands` and emits one MDX per leaf command
+  (28 reference pages for the 0.8.0 surface). 6 production commands ship
+  `bash recipe` runnable epilogs (`auth login`, `auth tokens create`,
+  `datasets download`, `datasets push`, `bundles redeem`, `bundles
+  download`); Plan 30-13 recipe-CI lifts those blocks against staging.
+  (CLIDIST-06)
+- **`verlet auth tokens set hf <token>`** subcommand — store a HuggingFace
+  token alongside the active Verlet profile so `verlet datasets push --to
+  huggingface://...` resolves the token without `HF_TOKEN` in the env.
+
+### Changed
+
+- `pyproject.toml` version bumped `0.7.0` → `0.8.0`; dependencies
+  alphabetized; `huggingface_hub>=0.32` added (kept `>=0.32` floor to
+  preserve `hf_xet` automatic-install behavior). `verlet =
+  "verlet.cli:cli"` entry point unchanged.
+- `verlet auth status` recognizes `kind="bundle_grant"` profiles and
+  renders an expiry hint alongside the existing
+  `device_flow` / `pat` / `showcase_access_code` kinds.
+
+### Distribution
+
+- **PyPI** (gated): `pipx install verlet` + `uvx verlet --version` — the
+  `.github/workflows/release.yml` workflow ships in this commit and uses
+  PyPI Trusted Publishing (`pypa/gh-action-pypi-publish@release/v1`,
+  `id-token: write`) with a `pipx-smoke` matrix
+  (`{macos-latest, ubuntu-latest} × {3.11, 3.12}`) and a `uvx-smoke`
+  matrix (`{macos-latest, ubuntu-latest}`). **First publish requires
+  human approval at https://pypi.org/manage/project/verlet/settings/publishing/
+  and a tag push (`git tag v0.8.0 && git push origin v0.8.0`); deferred
+  intentionally — see CLIDIST-01 / CLIDIST-02 in REQUIREMENTS.md.**
+  (CLIDIST-01, CLIDIST-02)
+- **Homebrew tap**: `brew install verlet-robotics/verlet/verlet` — the
+  Homebrew formula lands in Plan 30-13. (CLIDIST-03)
+
+### Privacy
+
+- Telemetry default OFF. When opted in (`verlet config telemetry enable`),
+  no command names, paths, dataset slugs, or identities leave the machine.
+  Aggregate use is reconstructed from existing access logs only — the CLI
+  never sends a separate analytics payload.
+
+### Known limitations / Deferred
+
+- v0.8.0 is **not yet on PyPI**. The git tag `v0.8.0` has not been pushed;
+  the first PyPI publish requires admin approval at the PyPI Trusted
+  Publishing settings page and is held until the operator is ready to cut
+  the public release. To publish: bump nothing further, then run
+  `git tag v0.8.0 && git push origin v0.8.0` and approve the workflow's
+  first run if PyPI surfaces a prompt.
+- `verlet datasets jobs` listing endpoint is deferred server-side; bare
+  `verlet datasets jobs` (no id) short-circuits cleanly until the backend
+  ships the listing endpoint in a future plan.
+
 ## [0.7.0] — 2026-05-07
 
 ### Added (Phase 29)
