@@ -5,6 +5,66 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-05-07
+
+### Added (Phase 29)
+
+- **`verlet datasets list|info|download`** — unified top-level command group
+  hitting the platform-catalog API. Works for both anonymous showcase visitors
+  (public catalog) and authenticated platform users (account-restricted rows
+  + paid downloads). Auto-detects modality (arm vs ego) from the catalog row
+  and dispatches to the correct Phase 27 manifest endpoint. (CLIDATA-04,
+  CLIDATA-05, CLIDATA-06)
+- `--task`, `--robot`, `--category`, `--since`, `--limit`, `--kind` filters on
+  `verlet datasets list`. `--task` and `--robot` are repeatable (Click
+  `multiple=True`), e.g. `--task pick-and-place --task push`.
+- `--variant raw|processed` (REQUIRED for ego rows; rejected for arm rows),
+  `--episode-ids` (raw + arm only), `--segment-ids` (processed only),
+  `--format lerobot-v2` (native, arm only in 0.7.0), `--parallel`, `--resume`,
+  `--dry-run`, `--force`, `--output` on `verlet datasets download`.
+- `--json` machine-readable output on `verlet datasets list` and
+  `verlet datasets info`. Direct `CatalogDatasetListItem` /
+  `CatalogDatasetDetail` Pydantic dump from the server response.
+- Pre-flight flag-validation matrix (`verlet/datasets/_validation.py`) —
+  surfaces clear error messages before any HTTP call (e.g. "--variant is
+  ego-only; this is a teleop dataset").
+- Anonymous browse: `verlet datasets list` and `verlet datasets info` work
+  without an active profile against public catalog rows. Authenticated calls
+  additionally see Phase 19 account-restricted rows. `verlet datasets
+  download` always requires auth (`verlet auth login` hint on no-profile).
+
+### Removed (BREAKING)
+
+- **`verlet teleop` command group** — replaced by `verlet datasets`. No
+  deprecation shim, no stderr warning, no removal-version planning.
+  Pre-users-no-deprecation principle: the project is pre-users; the cost of
+  carrying compatibility code outweighed the (non-existent) compatibility
+  audience. Run `verlet datasets list --kind teleop` for the arm-only view.
+  Files deleted: `verlet/teleop/__init__.py`, `verlet/teleop/commands.py`,
+  `verlet/teleop/catalog.py`. Reference removed from `verlet/cli.py`.
+
+### Changed
+
+- Backend: `GET /api/platform/v1/catalog/datasets` now accepts
+  `?since=<iso-8601>` filtering on `published_at` (Phase 29 D-FL5 backend
+  extension; ships in the same release window). Required because the
+  `--since 2026-04-01` recipe needs server-side filtering to keep
+  pagination semantics correct.
+
+### Notes for Upgrading
+
+- `pip install -U verlet` to refresh the entry-points cache. After upgrade,
+  `verlet teleop --help` exits with Click's `Error: No such command 'teleop'.`
+  (status 2) — this is intentional, not a regression.
+- Non-native formats (`hdf5`, `zarr`, `rlds`, `rosbag`, `robodm`,
+  `egomimic`, `lerobot-v3`) print "format X requires the Phase 30
+  conversion engine — coming soon" and exit cleanly. Phase 30 wires the
+  rosetta engine end-to-end.
+- Slug-primary identity: pass dataset slugs (e.g. `pick-and-place-yam-v3`)
+  to `verlet datasets info|download`. Full UUIDs still work as a fallback
+  for scripts; 8-character ID-prefix matching from the old
+  `verlet teleop info` is dropped (slug-first model from Phase 22+).
+
 ## 0.6.0 — 2026-05-07
 
 ### Added
