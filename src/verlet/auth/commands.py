@@ -17,6 +17,7 @@ from .credentials import load_credentials
 from .login import device_flow_login
 from .logout import logout as do_logout
 from .profiles import ProfileNotFoundError, resolve_profile_name
+from .status import render_status as _render_status
 from .tokens import create_pat as _create_pat
 from .tokens import list_pats as _list_pats
 from .tokens import revoke_pat as _revoke_pat
@@ -88,6 +89,41 @@ def cmd_logout(ctx: click.Context) -> None:
     except ProfileNotFoundError as exc:
         click.echo(str(exc), err=True)
         raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# auth status — kind-aware identity / token / expiry summary (CLIAUTH-09)
+# ---------------------------------------------------------------------------
+
+
+@auth_group.command("status")
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Emit machine-readable JSON instead of human text.",
+)
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help="Re-probe /auth/me and update cached identity (device_flow / pat only).",
+)
+@click.pass_context
+def cmd_status(ctx: click.Context, json_output: bool, refresh: bool) -> None:
+    """Show the active profile's identity, token, scopes, and expiry."""
+    try:
+        rc = _render_status(
+            ctx.obj.get("profile"),
+            json_output=json_output,
+            refresh=refresh,
+        )
+    except ProfileNotFoundError as exc:
+        click.echo(str(exc), err=True)
+        raise SystemExit(1)
+    if rc != 0:
+        raise SystemExit(rc)
 
 
 # ---------------------------------------------------------------------------
