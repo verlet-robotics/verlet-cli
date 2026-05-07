@@ -378,3 +378,15 @@ def datasets_download(
     console.print(f"\n{', '.join(summary_parts)} -> {output_root}")
     if result.failed > 0:
         raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-05 (CLIDATA-07): register `verlet datasets push <slug> --to ...`.
+#
+# Implementation lives in ``verlet.datasets.push`` — keeping the command
+# definition out-of-band leaves this file focused on list/info/download.
+# ---------------------------------------------------------------------------
+
+from verlet.datasets.push import push as push_command  # noqa: E402
+
+datasets_group.add_command(push_command)

@@ -105,3 +105,77 @@ def validate_kind_category(*, kind: str, category: str | None) -> None:
         raise click.UsageError(
             "--category is ego-only; remove it or pass --kind ego."
         )
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-05 (CLIDATA-07): HuggingFace push URL parser + token resolver
+#
+# `verlet datasets push --to huggingface://org/repo` lives in push.py; the
+# pure-function pieces (URL shape + D-FORMAT2 token precedence) live here so
+# they share the existing _validation.py home for flag-matrix logic.
+# ---------------------------------------------------------------------------
+
+import os
+import re
+
+HF_URL_RE = re.compile(r"^huggingface://(?P<org>[^/]+)/(?P<repo>[^/]+)$")
+"""Strict ``huggingface://org/repo`` shape — single slash, both segments
+non-empty. Sub-paths (``huggingface://org/repo/branch``) intentionally
+rejected; HF Hub repos don't carry a third segment in this contract."""
+
+NO_HF_TOKEN_MSG = (
+    "No HF token configured. "
+    "Run `verlet auth tokens set hf <token>` or set HF_TOKEN env."
+)
+"""D-FORMAT2 verbatim error string — byte-asserted in Plan 30-05's tests
+(Phase 31 verbatim-error pattern). Must match the wording in 30-RESEARCH.md
+Q2 exactly so users see a single canonical hint regardless of where the
+guard fires."""
+
+
+def parse_hf_url(url: str) -> tuple[str, str]:
+    """Parse ``huggingface://org/repo`` → ``(org, repo)`` (CLIDATA-07).
+
+    Click ``BadParameter`` raised on:
+
+      * non-``huggingface://`` schemes (``s3://``, ``gs://``, ``http://``);
+        message contains ``"only huggingface:// supported"``.
+      * malformed shapes (no slash, empty org, empty repo, sub-paths);
+        message mentions the expected ``huggingface://org/repo`` form.
+
+    The strict regex avoids surfacing into Click's standard argument-parser
+    "Invalid value" wording — users see an actionable hint immediately.
+    """
+    if not url.startswith("huggingface://"):
+        raise click.BadParameter(
+            "only huggingface:// supported (expected huggingface://org/repo)",
+        )
+    m = HF_URL_RE.match(url)
+    if m is None:
+        raise click.BadParameter("expected huggingface://org/repo")
+    return (m.group("org"), m.group("repo"))
+
+
+def resolve_hf_token(profile_name: str) -> str:
+    """Resolve the active HF token (D-FORMAT2 precedence).
+
+    Order:
+
+      1. Active profile's ``hf_token`` field in ``~/.verlet/credentials.json``.
+      2. ``HF_TOKEN`` env var.
+      3. Raise ``click.UsageError(NO_HF_TOKEN_MSG)``.
+
+    The profile-resolved value beats the env var because the profile is
+    more specific (you can keep ``HF_TOKEN`` unset on a workstation that
+    has different tokens stored across multiple profiles). CI runs that
+    only export ``HF_TOKEN`` keep working because step 2 picks it up.
+    """
+    from verlet.auth.credentials import read_hf_token
+
+    token = read_hf_token(profile_name)
+    if token:
+        return token
+    env = os.environ.get("HF_TOKEN")
+    if env:
+        return env
+    raise click.UsageError(NO_HF_TOKEN_MSG)
