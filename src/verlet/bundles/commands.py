@@ -16,9 +16,11 @@ import asyncio
 import json
 
 import click
+import httpx
 
 from verlet.bundles._api import fetch_bundles_browse
 from verlet.bundles._render import bundles_browse_table
+from verlet.datasets.convert import SUPPORTED_FORMATS, validate_format
 from verlet.display import console
 
 
@@ -242,3 +244,208 @@ def info(ctx: click.Context, bundle_id: str, as_json: bool) -> None:
         return
 
     console.print(bundle_detail_view(bundle))
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-09 -- `verlet bundles download <id>` (CLIBUNDLE-05).
+#
+# D-BUNDLE3: --variant raw is rejected pre-network with a verbatim error
+# (zero HTTP calls). --format <fmt> applies to ALL bundle datasets via per-
+# dataset fan-out to fetch_arm_manifest; if any dataset's manifest endpoint
+# returns 400 ("format X not supported for raw-only dataset Y"), the entire
+# bundle download aborts before fanning further -- NO partial writes.
+#
+# D-BUNDLE4: disk layout is <out>/<dataset_slug>/... with bundle_manifest.json
+# at <out>/bundle_manifest.json summarizing slugs + format.
+#
+# Top-level imports of download_resolved + DownloadPlanItem at module scope
+# so tests can patch ``verlet.bundles.commands.download_resolved`` directly
+# (autouse fixture in tests/bundles/test_download.py).
+# ---------------------------------------------------------------------------
+
+from pathlib import Path  # noqa: E402
+
+from verlet.download import DownloadPlanItem, download_resolved  # noqa: E402
+
+
+@bundles_group.command("download")
+@click.argument("bundle_id")
+@click.option(
+    "--variant",
+    type=click.Choice(["raw", "processed"]),
+    default=None,
+    help=(
+        "Bundles are processed-only; passing 'raw' is rejected before any "
+        "network call (D-BUNDLE3)."
+    ),
+)
+@click.option(
+    "--format",
+    "fmt",
+    default=None,
+    callback=lambda ctx, p, v: validate_format(v),
+    help=(
+        "Apply format conversion to ALL bundle datasets (D-BUNDLE3). "
+        "Supported: " + ", ".join(SUPPORTED_FORMATS) + "."
+    ),
+)
+@click.option(
+    "-o", "--out", default=None,
+    help="Output directory; defaults to ./<bundle_id>/",
+)
+@click.option(
+    "-v", "--verbose", is_flag=True,
+    help="Stream server-side conversion log lines on stderr (D-FORMAT4).",
+)
+@click.option(
+    "--quiet", is_flag=True,
+    help="Suppress the Rich progress bar; errors still go to stderr.",
+)
+@click.option("--parallel", default=8, type=int, help="Max concurrent downloads.")
+@click.pass_context
+def download(
+    ctx: click.Context,
+    bundle_id: str,
+    variant: str | None,
+    fmt: str | None,
+    out: str | None,
+    verbose: bool,
+    quiet: bool,
+    parallel: int,
+) -> None:
+    """Fan out downloads of every dataset in a bundle (CLIBUNDLE-05).
+
+    \b
+    D-BUNDLE3: --variant raw is rejected before any network call.
+    D-BUNDLE4: outputs to <out>/<dataset_slug>/... with bundle_manifest.json
+    written at <out>/bundle_manifest.json summarizing the run.
+
+    \b
+    Examples:
+      verlet bundles download stanford-egocentric-2024
+      verlet bundles download <bundle_uuid> --format hdf5
+      verlet bundles download <bundle_uuid> -o ./my-research-data
+    """
+    # Local imports keep the cold-import path of `verlet bundles browse` lean.
+    from verlet.api_client import AuthenticatedClient
+    from verlet.auth.profiles import resolve_profile_name
+    from verlet.bundles._api import fetch_bundle_detail
+    from verlet.bundles._validation import validate_bundle_download_flags
+    from verlet.datasets._api import fetch_arm_manifest
+    from verlet.datasets.convert import poll_conversion_job
+
+    # 1. Pre-flight gate (D-BUNDLE3 zero-network). Exits 2 on --variant raw.
+    validate_bundle_download_flags(variant=variant, format=fmt)
+
+    flag_profile = ctx.obj.get("profile") if ctx.obj else None
+    profile_name = resolve_profile_name(flag_profile)
+
+    # 2. Resolve bundle + per-dataset slug list. Authenticated -- routes 401
+    # through fetch_bundle_detail's _exit_with_stderr helper.
+    async def _fetch_detail() -> dict:
+        client = AuthenticatedClient(profile_name)
+        try:
+            return await fetch_bundle_detail(client, bundle_id)
+        finally:
+            client.close()
+
+    bundle = asyncio.run(_fetch_detail())
+
+    # 3. Set up the output root + bundle summary skeleton (D-BUNDLE4).
+    out_root = Path(out) if out else Path(f"./{bundle_id}/")
+    bundle_summary: dict = {
+        "bundle_id": bundle.get("bundle_id", bundle_id),
+        "bundle_slug": bundle.get("bundle_slug", ""),
+        "format": fmt,
+        "datasets": [],
+    }
+
+    # 4. Fan out per-dataset manifest fetches + downloads. D-BUNDLE3 fail-fast:
+    # any 400 from one dataset's manifest call aborts the WHOLE bundle download
+    # before fanning further (the next dataset's manifest is never fetched).
+    async def _drive_one(slug: str) -> dict:
+        """Fetch manifest for one dataset, polling on 202. Returns the
+        manifest dict ready for download_resolved consumption."""
+        # fetch_arm_manifest returns (status_code, body); 400 raises HTTPStatusError.
+        try:
+            status_code, body = await fetch_arm_manifest(
+                profile_name, slug, format=fmt or "lerobot-v2"
+            )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                try:
+                    detail = e.response.json().get("detail") or str(e)
+                except Exception:
+                    detail = e.response.text or str(e)
+                click.echo(
+                    f"download aborted: {slug} -> {detail}", err=True,
+                )
+                raise SystemExit(1)
+            raise
+
+        if status_code == 200:
+            return body
+
+        # 202 -- conversion enqueued. Drive the foreground poll loop. The
+        # poll path writes its own failure surface to stderr (D-FORMAT3) and
+        # raises SystemExit(1); we re-raise after stamping the failing dataset
+        # slug so the user knows WHICH dataset broke.
+        job_id = body["job_id"]
+        poll_client = AuthenticatedClient(profile_name)
+        try:
+            try:
+                manifest = await poll_conversion_job(
+                    poll_client, job_id, verbose=verbose, quiet=quiet,
+                )
+            except SystemExit:
+                click.echo(
+                    f"download aborted at dataset: {slug}", err=True,
+                )
+                raise
+        finally:
+            poll_client.close()
+        return manifest
+
+    async def _drive_all() -> None:
+        out_root.mkdir(parents=True, exist_ok=True)
+        for ds in bundle.get("datasets") or []:
+            slug = ds["slug"]
+            if not quiet:
+                console.print(f"[cyan]-> {slug}[/cyan]")
+
+            manifest = await _drive_one(slug)
+
+            # D-BUNDLE4: per-dataset subdir at the bundle root.
+            ds_dir = out_root / slug
+            ds_dir.mkdir(parents=True, exist_ok=True)
+            items = [
+                DownloadPlanItem(
+                    url=f["url"], local_path=ds_dir / f["path"],
+                )
+                for f in manifest.get("files") or []
+            ]
+            result = await download_resolved(
+                items, parallel=parallel, skip_existing=True,
+            )
+            bundle_summary["datasets"].append(
+                {
+                    "slug": slug,
+                    "files": len(items),
+                    "downloaded": result.downloaded,
+                    "skipped": result.skipped,
+                    "failed": result.failed,
+                }
+            )
+
+        # Bundle-level summary at the root (D-BUNDLE4). Written ONLY on a
+        # successful fan-out -- a partial run leaves no bundle_manifest.json
+        # so downstream pipelines do not consume incomplete data by accident.
+        (out_root / "bundle_manifest.json").write_text(
+            json.dumps(bundle_summary, indent=2)
+        )
+        if not quiet:
+            console.print(
+                f"[green]bundle download complete[/green] -> {out_root}"
+            )
+
+    asyncio.run(_drive_all())
