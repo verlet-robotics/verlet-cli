@@ -12,10 +12,27 @@ so it can be unit-tested in isolation and reused by ``commands.py`` (Plan 03)
 and any future surfaces (e.g. Phase 31's ``verlet ego``) without a Click round
 trip. ``validate_kind_category`` covers the catalog-list-side D-FL1 lock that
 ``--category`` is ego-only.
+
+Phase 30 (Plan 30-04) re-exports ``validate_format`` and ``SUPPORTED_FORMATS``
+from ``verlet.datasets.convert`` so callers needing the full flag-matrix
+surface have one canonical import (the Phase 29 convention).
 """
 from __future__ import annotations
 
 import click
+
+# Re-export from convert.py so the flag-matrix surface stays in one place.
+from verlet.datasets.convert import (  # noqa: F401
+    SUPPORTED_FORMATS,
+    validate_format,
+)
+
+__all__ = [
+    "SUPPORTED_FORMATS",
+    "validate_download_flags",
+    "validate_format",
+    "validate_kind_category",
+]
 
 
 def validate_download_flags(
