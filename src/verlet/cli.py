@@ -2,9 +2,6 @@
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 import click
-import httpx
-
-from verlet.display import console
 
 try:
     __version__ = _pkg_version("verlet")
@@ -74,55 +71,18 @@ def legacy_login(ctx: click.Context, api_url: str | None) -> None:
     showcase_login(api_url=resolved_api_url, profile_name=profile_name)
 
 
-@cli.command()
-def update():
-    """Update verlet to the latest version."""
-    import subprocess
-    import sys
-
-    current = __version__
-    console.print(f"[dim]Current version: {current}[/dim]")
-    console.print("Checking for updates...")
-
-    try:
-        resp = httpx.get("https://pypi.org/pypi/verlet/json", timeout=10.0)
-        resp.raise_for_status()
-        latest = resp.json()["info"]["version"]
-    except Exception:
-        console.print("[yellow]Could not check PyPI for latest version. Upgrading anyway...[/yellow]")
-        latest = None
-
-    if latest and latest == current:
-        console.print(f"[green]Already up to date (v{current})[/green]")
-        return
-
-    if latest:
-        console.print(f"[bold]Updating v{current} -> v{latest}[/bold]")
-
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "verlet"],
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode == 0:
-        version_label = f"v{latest}" if latest else "latest"
-        console.print(f"[green]Updated to {version_label}[/green]")
-    else:
-        console.print(f"[red]Update failed:[/red]\n{result.stderr.strip()}")
-        raise SystemExit(1)
-
-
 # Register subcommand groups
 from verlet.auth.commands import auth_group  # noqa: E402
 from verlet.bundles import bundles_group  # noqa: E402
 from verlet.datasets import datasets_group  # noqa: E402
 from verlet.ego.commands import ego_group  # noqa: E402
+from verlet.update import update as update_command  # noqa: E402
 
 cli.add_command(auth_group)
 cli.add_command(bundles_group)
 cli.add_command(datasets_group)
 cli.add_command(ego_group)
+cli.add_command(update_command)
 
 
 if __name__ == "__main__":
