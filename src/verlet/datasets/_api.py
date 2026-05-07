@@ -161,12 +161,20 @@ async def fetch_arm_manifest(
     *,
     episode_ids: str | None = None,
     format: str = "lerobot-v2",
-) -> dict:
-    """Authenticated. ``profile_name`` MUST be set (download requires auth).
+) -> tuple[int, dict]:
+    """Authenticated. Returns ``(status_code, body)``.
 
-    ``commands.py`` calls ``require_profile()`` before invoking this helper
-    so the AuthenticatedClient constructor's ``ProfileNotFoundError`` will
-    never fire here in practice.
+    Phase 30 (CLIDATA-07): the manifest endpoint may return either:
+
+    * **200** + ``DownloadManifest`` — native format, no conversion needed.
+    * **202** + ``Manifest202Response{job_id, status, poll_url, …}`` — server
+      enqueued a conversion job; the caller polls ``/downloads/jobs/{id}``.
+
+    Returning the status code lets ``commands.py`` branch without a
+    second-round-trip introspection on the body shape. ``commands.py``
+    calls ``require_profile()`` before invoking this helper so the
+    AuthenticatedClient constructor's ``ProfileNotFoundError`` will never
+    fire here in practice.
     """
     client = AuthenticatedClient(profile_name)
     try:
@@ -175,6 +183,27 @@ async def fetch_arm_manifest(
             params["episode_ids"] = episode_ids
         resp = client.request(
             "GET", ARM_MANIFEST_PATH.format(slug=slug), params=params
+        )
+        # Tolerate both 200 (native) and 202 (conversion enqueued); any other
+        # status raises so the caller sees the wire-level error verbatim.
+        if resp.status_code not in (200, 202):
+            resp.raise_for_status()
+        return (resp.status_code, resp.json())
+    finally:
+        client.close()
+
+
+async def fetch_job_poll(profile_name: str, job_id: str) -> dict:
+    """Authenticated. Single ``GET /downloads/jobs/{job_id}`` round-trip.
+
+    Phase 30 helper exposed for parity with ``fetch_arm_manifest`` — the
+    actual polling loop lives in ``verlet.datasets.convert.poll_conversion_job``
+    so the Rich progress UX + stderr-on-failure contract stays in one place.
+    """
+    client = AuthenticatedClient(profile_name)
+    try:
+        resp = client.request(
+            "GET", f"/api/platform/v1/downloads/jobs/{job_id}"
         )
         resp.raise_for_status()
         return resp.json()

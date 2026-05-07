@@ -175,40 +175,75 @@ def test_variant_required_on_ego(cli_runner, respx_mock, tmp_home):
     assert all("/manifest" not in p for p in paths), paths
 
 
-def test_non_native_format_phase_30_hint(cli_runner, respx_mock, tmp_home):
-    """`--format hdf5` (non-native) → Phase-30 hint + clean exit (status 0).
-
-    CONTEXT.md Discretion §"--format flag in v1": exit cleanly (status 0)
-    rather than as a flag-misuse error. The download command short-circuits
-    before any HTTP fires — neither the catalog detail nor the manifest is
-    touched, since the format check happens BEFORE modality resolution.
+def test_non_native_format_now_triggers_conversion(
+    cli_runner, respx_mock, tmp_home, mock_arm_manifest_response,
+):
+    """Phase 30 (CLIDATA-07): ``--format hdf5`` no longer prints a "coming
+    soon" hint — it now triggers server-side conversion via the 202+job-id
+    polling branch. The detailed end-to-end test lives in
+    ``test_download_format.py::test_download_format_hdf5_polls_and_completes``;
+    this just guards against a regression where the old hint was silently
+    re-introduced.
     """
+    from unittest.mock import patch
+
     from verlet.cli import cli
 
     _seed_default_profile(tmp_home)
 
-    # No respx route registered for the catalog detail endpoint — if the
-    # command fires it, respx will raise "no matching route" and the test
-    # fails. Asserting "no calls" below is the explicit contract.
-    result = cli_runner.invoke(
-        cli,
-        [
-            "datasets",
-            "download",
-            "pick-and-place-yam-v3",
-            "--format",
-            "hdf5",
-            "--dry-run",
-        ],
+    slug = "pick-and-place-yam-v3"
+    respx_mock.get(
+        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+    ).respond(200, json=_arm_detail(slug))
+    # 202 enqueue → single completed poll inlining the manifest.
+    respx_mock.get(
+        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+    ).respond(
+        202,
+        json={
+            "job_id": "regression-job",
+            "status": "processing",
+            "poll_url": "/api/platform/v1/downloads/jobs/regression-job",
+        },
     )
-    assert result.exit_code == 0, result.output
-    assert "Phase 30 conversion engine" in result.output, result.output
+    respx_mock.get(
+        "https://api.verlet.co/api/platform/v1/downloads/jobs/regression-job",
+    ).respond(
+        200,
+        json={
+            "job_id": "regression-job",
+            "status": "completed",
+            "progress": None,
+            "manifest": mock_arm_manifest_response,
+            "error_message": None,
+            "failed_stage": None,
+        },
+    )
 
-    # Zero HTTP calls — pre-flight gate fires before modality detection.
-    assert len(respx_mock.calls) == 0, (
-        f"Phase 30 hint must short-circuit before any HTTP, "
-        f"got {len(respx_mock.calls)} calls"
-    )
+    async def _noop_sleep(_secs):
+        return None
+
+    with patch(
+        "verlet.datasets.convert.asyncio.sleep", new=_noop_sleep,
+    ):
+        result = cli_runner.invoke(
+            cli,
+            [
+                "datasets",
+                "download",
+                slug,
+                "--format",
+                "hdf5",
+                "--dry-run",
+                "--quiet",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    # Old "coming soon" hint must NOT resurface.
+    assert "Coming soon" not in result.output, result.output
+    # Old "Phase 30 conversion engine" hint must NOT resurface (it referred to
+    # the unimplemented state; Phase 30 is now live).
+    assert "Phase 30 conversion engine" not in result.output, result.output
 
 
 def test_resume_skips_existing(

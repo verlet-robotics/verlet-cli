@@ -43,6 +43,11 @@ from verlet.datasets._validation import (
     validate_download_flags,
     validate_kind_category,
 )
+from verlet.datasets.convert import (
+    SUPPORTED_FORMATS,
+    poll_conversion_job,
+    validate_format,
+)
 from verlet.display import console
 from verlet.download import DownloadPlanItem, DownloadResult, download_resolved
 from verlet.license import (
@@ -193,7 +198,24 @@ def datasets_info(ctx: click.Context, slug: str, as_json: bool) -> None:
 @click.option(
     "--format",
     default=None,
-    help="Format (Phase 29 ships lerobot-v2 only; non-native prints Phase 30 hint).",
+    callback=lambda ctx, p, v: validate_format(v),
+    help=(
+        "Convert before download. One of: "
+        + ", ".join(SUPPORTED_FORMATS)
+        + ". Native (lerobot-v2) returns immediately; non-native enqueues a "
+        "server-side conversion and the CLI polls until ready (D-FORMAT1)."
+    ),
+)
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="Stream server-side conversion log lines on stderr (D-FORMAT4).",
+)
+@click.option(
+    "--quiet",
+    is_flag=True,
+    help="Suppress the Rich progress bar; errors still go to stderr.",
 )
 @click.option("--parallel", default=8, type=int, help="Max concurrent downloads.")
 @click.option(
@@ -220,12 +242,20 @@ def datasets_download(
     segment_ids: str | None,
     output: str,
     format: str | None,
+    verbose: bool,
+    quiet: bool,
     parallel: int,
     resume: bool,
     dry_run: bool,
     force: bool,
 ) -> None:
-    """Download a dataset by slug. Auto-detects modality from the catalog row."""
+    """Download a dataset by slug. Auto-detects modality from the catalog row.
+
+    With ``--format``, server-side conversion runs first; the CLI polls
+    ``/downloads/jobs/{id}`` until ready (D-FORMAT1 foreground default). On
+    failure the verbatim ``error_message`` (and ``failed_stage`` if present)
+    is printed to stderr and the CLI exits non-zero (D-FORMAT3 no auto-retry).
+    """
     # 1. Auth gate (D-MOD4) — fail fast pre-HTTP. Resolve the profile name from
     # the root --profile flag / VERLET_PROFILE env / credentials.json default,
     # then require_profile() to confirm an entry exists.
@@ -238,27 +268,12 @@ def datasets_download(
             "Not authenticated. Run `verlet auth login` to download datasets."
         )
 
-    # 2. Discretion (CONTEXT.md): non-native --format exits 0 with a Phase 30
-    # hint BEFORE the modality round-trip. The validator raises UsageError
-    # (exit 2) for non-native formats, which doesn't match the "exit cleanly"
-    # framing in CONTEXT.md. Catch it here at the command boundary so the user
-    # sees a clean exit + the Phase 30 phrase the test asserts on.
-    if format is not None and format != "lerobot-v2":
-        # CONTEXT.md Discretion: Phase 30 hint exits 0 (clean signal that the
-        # feature is coming, not a flag-misuse error).
-        console.print(
-            f"[yellow]--format {format} requires the Phase 30 conversion engine. "
-            "Coming soon. For now, --format lerobot-v2 (native) ships in this "
-            "release.[/yellow]"
-        )
-        return
-
-    # 3. Resolve catalog row to determine modality (D-MOD2). The same
+    # 2. Resolve catalog row to determine modality (D-MOD2). The same
     # /catalog/datasets/{slug_or_id} endpoint backs `verlet datasets info`.
     detail = asyncio.run(fetch_catalog_detail(profile_name, slug))
     modality = "ego" if is_ego_row(detail) else "arm"
 
-    # 4. Pre-flight flag validation.
+    # 3. Pre-flight flag validation.
     validate_download_flags(
         modality=modality,
         variant=variant,
@@ -267,15 +282,16 @@ def datasets_download(
         format=format,
     )
 
-    # 5. License acceptance (license file persists on first acceptance).
+    # 4. License acceptance (license file persists on first acceptance).
     if not dry_run and not check_license_accepted():
         if not prompt_license_acceptance():
             console.print("[dim]Download cancelled.[/dim]")
             return
 
-    # 6. Fetch manifest.
+    # 5. Fetch manifest. Arm endpoint may return 202 + job_id for non-native
+    # formats — branch into the conversion-poll loop in that case (CLIDATA-07).
     if modality == "arm":
-        manifest = asyncio.run(
+        status_code, body = asyncio.run(
             fetch_arm_manifest(
                 profile_name,
                 slug,
@@ -283,6 +299,28 @@ def datasets_download(
                 format=format or "lerobot-v2",
             )
         )
+        if status_code == 202:
+            # Server enqueued a conversion job; drive the poll loop to
+            # completion (D-FORMAT1 foreground default). poll_conversion_job
+            # writes the failure path to stderr + raises SystemExit(1) per
+            # D-FORMAT3 — we don't need to catch it here.
+            from verlet.api_client import AuthenticatedClient
+
+            poll_client = AuthenticatedClient(profile_name)
+            try:
+                manifest = asyncio.run(
+                    poll_conversion_job(
+                        poll_client,
+                        body["job_id"],
+                        verbose=verbose,
+                        quiet=quiet,
+                    )
+                )
+            finally:
+                poll_client.close()
+        else:
+            # 200 — native format; manifest is inlined in the response body.
+            manifest = body
     else:
         # variant is non-None here (validate_download_flags would have raised).
         assert variant is not None

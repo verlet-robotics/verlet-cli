@@ -39,11 +39,38 @@ def test_variant_rejected_on_arm_pure():
         )
 
 
-def test_non_native_format_rejected_pure():
+def test_arm_format_accepted_pure():
+    """Phase 30 (CLIDATA-07): the validator no longer rejects non-native arm
+    formats — the validate_format Click callback handles unknown values
+    pre-HTTP, and the 202+job-id polling branch in commands.py handles the
+    server-side conversion. validate_download_flags' arm branch only checks
+    --variant / --segment-ids exclusivity now."""
     from verlet.datasets._validation import validate_download_flags
-    with pytest.raises(click.UsageError, match="Phase 30 conversion engine"):
+
+    # All 8 SUPPORTED_FORMATS are accepted on arm rows (no exception raised).
+    for fmt in (
+        "lerobot-v2",
+        "lerobot-v3",
+        "hdf5",
+        "zarr",
+        "rlds",
+        "rosbag",
+        "robodm",
+        "egomimic",
+    ):
         validate_download_flags(
             modality="arm", variant=None,
+            episode_ids=None, segment_ids=None, format=fmt,
+        )
+
+
+def test_ego_format_still_rejected_pure():
+    """Ego variants (raw/processed) remain exclusive of arm-style format
+    conversion; the CLI surfaces this via a flag-incompatibility error."""
+    from verlet.datasets._validation import validate_download_flags
+    with pytest.raises(click.UsageError, match="--format is teleop-only"):
+        validate_download_flags(
+            modality="ego", variant="processed",
             episode_ids=None, segment_ids=None, format="hdf5",
         )
 

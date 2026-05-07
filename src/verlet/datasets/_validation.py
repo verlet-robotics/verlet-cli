@@ -58,12 +58,10 @@ def validate_download_flags(
             raise click.UsageError(
                 "--segment-ids is ego-only; this is a teleop dataset."
             )
-        if format is not None and format != "lerobot-v2":
-            raise click.UsageError(
-                f"--format {format} requires the Phase 30 conversion engine. "
-                "Coming soon. For now, --format lerobot-v2 (native) ships in "
-                "this release."
-            )
+        # Phase 30 (CLIDATA-07): all 8 formats from SUPPORTED_FORMATS are
+        # accepted; the validate_format Click callback (verlet/datasets/convert.py)
+        # rejects unknown values pre-HTTP. The 202+job-id polling branch in
+        # commands.py handles non-native formats end-to-end.
         return
 
     # modality == "ego"
@@ -76,7 +74,12 @@ def validate_download_flags(
             f"Invalid --variant '{variant}'. Valid: raw, processed."
         )
     if format is not None:
-        raise click.UsageError("--format is teleop-only in Phase 29.")
+        # Ego variants (raw/processed) are exclusive of arm-style format
+        # conversion — they go through the variant-specific manifest endpoints
+        # (Phase 27 D-EE4). The CLI surfaces this as a flag-incompatibility.
+        raise click.UsageError(
+            "--format is teleop-only; ego datasets use --variant raw|processed.",
+        )
     if variant == "raw" and segment_ids is not None:
         # Verbatim from backend/services/downloads/routes.py:1126-1131.
         raise click.UsageError(
