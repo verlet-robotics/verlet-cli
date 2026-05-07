@@ -121,6 +121,26 @@ def telemetry_disable_cmd() -> None:
     click.echo("Telemetry disabled.")
 
 
+# ---------------------------------------------------------------------------
+# verlet docs export -- Plan 30-11 / CLIDIST-06.
+#
+# Maintainer-facing walker that regenerates the Phase 35 MDX reference tree
+# from the live Click command tree. Lives under a sibling ``docs`` group so
+# future doc-related utilities (e.g. linkcheck, recipe-extract) can join the
+# same surface without polluting the top-level command list.
+# ---------------------------------------------------------------------------
+
+
+@click.group("docs")
+def docs_group() -> None:
+    """Documentation utilities (maintainer)."""
+
+
+from verlet.docs_export import docs_export  # noqa: E402
+
+docs_group.add_command(docs_export)
+
+
 # Register subcommand groups
 from verlet.auth.commands import auth_group  # noqa: E402
 from verlet.bundles import bundles_group  # noqa: E402
@@ -132,6 +152,7 @@ cli.add_command(auth_group)
 cli.add_command(bundles_group)
 cli.add_command(config_group)
 cli.add_command(datasets_group)
+cli.add_command(docs_group)
 cli.add_command(ego_group)
 cli.add_command(update_command)
 

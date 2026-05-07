@@ -1,0 +1,24 @@
+---
+title: verlet auth login
+description: Sign in to Verlet via the OAuth device flow (default) or legacy showcase code.
+---
+
+# `verlet auth login`
+
+## Synopsis
+
+```bash
+verlet auth login [OPTIONS]
+```
+
+## Description
+
+Sign in to Verlet via the OAuth device flow (default) or legacy showcase code.
+
+## Options
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--api-url` | text |  | Override API base URL (default: https://api.verlet.co or the active profile's api_url). |
+| `--no-browser` | boolean |  | Do not open a browser; print the verification URL instead. |
+| `--kind` | choice | `'device'` | device = OAuth device flow (default). showcase = legacy access-code flow (finalized in Plan 28-04). |

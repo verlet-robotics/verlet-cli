@@ -1,0 +1,34 @@
+---
+title: verlet bundles redeem
+description: Redeem a research-access code; save bearer token to ~/.verlet/credentials.json.
+---
+
+# `verlet bundles redeem`
+
+## Synopsis
+
+```bash
+verlet bundles redeem [OPTIONS] CODE
+```
+
+## Description
+
+Redeem a research-access code; save bearer token to ~/.verlet/credentials.json.
+
+    
+    D-BUNDLE2 idempotent: re-redeeming the same code overwrites the local
+    profile entry with the server-issued (fresh) token. Revoked / expired
+    codes return 410 Gone with a verbatim server detail; unknown codes
+    return 404 with "Invalid code".
+
+    
+    Examples:
+      verlet bundles redeem ABCD-1234
+      verlet --profile staging bundles redeem ABCD-1234
+    
+
+## Options
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `--email` | text |  | Email to associate with the redemption (server may require for first-time redemptions on new accounts). |
