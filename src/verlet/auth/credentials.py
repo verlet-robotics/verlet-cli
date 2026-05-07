@@ -176,3 +176,43 @@ def warn_on_bad_permissions(path: Path) -> None:
             f"your tokens.\n"
             f"         Run: chmod 600 {path}\n"
         )
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-05 (D-FORMAT2): HuggingFace token storage on the active profile.
+#
+# `hf_token` is an optional field on any profile (orthogonal to ``kind`` —
+# device_flow / pat / showcase profiles can all carry one). Used by
+# ``verlet datasets push --to huggingface://...`` to authenticate the
+# server-side push-trigger endpoint without re-prompting on every call.
+# ---------------------------------------------------------------------------
+
+
+def set_hf_token(profile_name: str, token: str) -> None:
+    """Persist ``hf_token`` onto the named profile (D-FORMAT2).
+
+    Creates the profile entry if missing. Existing fields (``kind``,
+    ``access_token``, ``refresh_token``, …) are preserved — only the
+    ``hf_token`` slot is overwritten. The atomic ``save_credentials``
+    helper preserves 0600 mode on POSIX, satisfying the Phase 28 invariant.
+    """
+    doc = load_credentials()
+    profile = doc["profiles"].get(profile_name) or {}
+    profile["hf_token"] = token
+    doc["profiles"][profile_name] = profile
+    save_credentials(doc)
+
+
+def read_hf_token(profile_name: str) -> str | None:
+    """Return the named profile's ``hf_token`` or ``None`` (D-FORMAT2).
+
+    Returns ``None`` both when the profile doesn't exist and when it has
+    no ``hf_token`` field. Caller is responsible for falling back to the
+    ``HF_TOKEN`` env var if that suits the call site (see
+    ``verlet.datasets._validation.resolve_hf_token``).
+    """
+    profile = get_profile(profile_name)
+    if profile is None:
+        return None
+    value = profile.get("hf_token")
+    return value if isinstance(value, str) else None

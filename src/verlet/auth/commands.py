@@ -268,3 +268,35 @@ def cmd_tokens_show(ctx: click.Context, id_or_name: str) -> None:
         "last_used_at",
     ):
         click.echo(f"{key}: {item.get(key)}")
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-05 (D-FORMAT2): `verlet auth tokens set hf <token>`
+#
+# Adds a `set` subgroup under `tokens` with a single `hf` leaf command.
+# The two-level nesting (`set hf`) leaves room for future auxiliary tokens
+# (e.g. `set wandb`, `set s3-access-key`) without re-organizing the surface.
+# ---------------------------------------------------------------------------
+
+
+@tokens_group.group("set")
+def tokens_set_group() -> None:
+    """Set auxiliary tokens (HuggingFace, etc.) on the active profile."""
+
+
+@tokens_set_group.command("hf")
+@click.argument("token")
+@click.pass_context
+def cmd_tokens_set_hf(ctx: click.Context, token: str) -> None:
+    """Save a HuggingFace token to the active profile.
+
+    \b
+    Used by `verlet datasets push --to huggingface://...`. Token persists in
+    ~/.verlet/credentials.json (mode 0o600) until removed manually
+    (no `unset hf` shipped yet — edit the file directly).
+    """
+    from .credentials import set_hf_token
+
+    profile_name = resolve_profile_name(ctx.obj.get("profile") if ctx.obj else None)
+    set_hf_token(profile_name, token)
+    click.echo(f"Saved HF token to profile '{profile_name}'.")
