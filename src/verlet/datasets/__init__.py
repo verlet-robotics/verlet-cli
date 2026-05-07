@@ -6,3 +6,6 @@ Submodule layout:
 - _validation.py — pre-flight flag matrix
 - _render.py — Rich table builders
 """
+from verlet.datasets.commands import datasets_group
+
+__all__ = ["datasets_group"]
