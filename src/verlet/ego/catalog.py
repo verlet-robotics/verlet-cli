@@ -2,7 +2,8 @@
 import click
 import httpx
 
-from verlet.config import get_api_url, get_token
+from verlet.api_client import AuthenticatedClient, auth_headers_for_profile
+from verlet.auth.profiles import ProfileNotFoundError
 
 SHOWCASE_PREFIX = "/api/v1/ego/showcase"
 
@@ -15,10 +16,33 @@ ASSET_TYPES = TRAINING_ASSET_TYPES + LEGACY_ASSET_TYPES
 
 
 def _auth_headers() -> dict[str, str]:
-    token = get_token()
-    if not token:
-        raise click.ClickException("Not authenticated. Run `verlet login` first.")
-    return {"Authorization": f"Bearer {token}"}
+    """Return ``Authorization: Bearer …`` for the active profile.
+
+    Routes through ``api_client.auth_headers_for_profile()`` so any of the
+    three profile kinds (device_flow / pat / showcase_access_code) and the
+    opportunistic-refresh logic in AuthenticatedClient stay in one place.
+    Plan 28-04 / Research §13.6 Plan B.
+    """
+    try:
+        return auth_headers_for_profile()
+    except ProfileNotFoundError:
+        raise click.ClickException(
+            "Not authenticated. Run `verlet auth login` first."
+        )
+
+
+def _api_url() -> str:
+    """Return the active profile's api_url (replaces 0.4.0 ``get_api_url``)."""
+    try:
+        client = AuthenticatedClient()
+        try:
+            return client.api_url
+        finally:
+            client.close()
+    except ProfileNotFoundError:
+        raise click.ClickException(
+            "Not authenticated. Run `verlet auth login` first."
+        )
 
 
 def _raise_http(exc: httpx.HTTPStatusError, context: str) -> None:
@@ -33,7 +57,7 @@ def _raise_http(exc: httpx.HTTPStatusError, context: str) -> None:
 
 
 async def fetch_ego_catalog(category: str | None = None) -> dict:
-    url = f"{get_api_url()}{SHOWCASE_PREFIX}/catalog"
+    url = f"{_api_url()}{SHOWCASE_PREFIX}/catalog"
     params = {}
     if category:
         params["category"] = category
@@ -54,7 +78,7 @@ async def fetch_ego_catalog(category: str | None = None) -> dict:
 
 
 async def presign_ego_asset(segment_id: str, asset: str = "overlay") -> str:
-    url = f"{get_api_url()}{SHOWCASE_PREFIX}/segments/{segment_id}/presign"
+    url = f"{_api_url()}{SHOWCASE_PREFIX}/segments/{segment_id}/presign"
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
@@ -81,7 +105,7 @@ async def fetch_training_bundle(
     amortize the TCP/TLS handshake across many segments.
     """
     url = (
-        f"{get_api_url()}{SHOWCASE_PREFIX}/segments/{segment_id}/training-bundle"
+        f"{_api_url()}{SHOWCASE_PREFIX}/segments/{segment_id}/training-bundle"
     )
     try:
         resp = await client.get(url, headers=_auth_headers(), timeout=30.0)
