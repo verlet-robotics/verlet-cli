@@ -121,3 +121,76 @@ def redeem(ctx: click.Context, code: str, email: str | None) -> None:
         f"[green]Redeemed.[/green] Bundle: [cyan]{response['bundle_slug']}[/cyan], "
         f"expires: {response['expires_at']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-08 — `verlet bundles list` (CLIBUNDLE-03) + `verlet bundles info`
+# (CLIBUNDLE-04). Both consume Plan 30-03's authenticated routes.
+#
+# `--all` for `list` maps to `?include_inactive=true` (D-BUNDLE1). 401 surfaces
+# the verbatim string "not authenticated; run verlet auth login" via _api's
+# `_exit_with_stderr` helper -- no try/except required here.
+#
+# Local imports inside each command body keep the cold-import path of
+# `verlet bundles browse` lean (the browse path is the more common operation
+# and never touches AuthenticatedClient).
+# ---------------------------------------------------------------------------
+
+
+@bundles_group.command("list")
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    default=False,
+    help="Include expired/revoked bundles (D-BUNDLE1).",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit machine-readable JSON to stdout instead of a Rich table.",
+)
+@click.pass_context
+def list_bundles(ctx: click.Context, show_all: bool, as_json: bool) -> None:
+    """List bundles in your account (research grants + purchased) (CLIBUNDLE-03).
+
+    \b
+    By default only active bundles are shown. ``--all`` includes expired
+    and revoked grants with a ``Status`` column color-coded
+    active=green / expired=yellow / revoked=red.
+
+    \b
+    Examples:
+      verlet bundles list
+      verlet bundles list --all
+      verlet bundles list --json | jq '.[0].bundle_slug'
+    """
+    from verlet.api_client import AuthenticatedClient
+    from verlet.auth.profiles import resolve_profile_name
+    from verlet.bundles._api import fetch_bundles_list
+    from verlet.bundles._render import bundles_list_table
+
+    flag_profile = ctx.obj.get("profile") if ctx.obj else None
+    profile_name = resolve_profile_name(flag_profile)
+
+    async def _run() -> dict:
+        client = AuthenticatedClient(profile_name)
+        try:
+            return await fetch_bundles_list(client, include_inactive=show_all)
+        finally:
+            client.close()
+
+    body = asyncio.run(_run())
+    items = body.get("items", []) or []
+
+    if as_json:
+        click.echo(json.dumps(items, indent=2))
+        return
+
+    if not items:
+        console.print("[dim]No bundles in your account.[/dim]")
+        return
+
+    console.print(bundles_list_table(items))

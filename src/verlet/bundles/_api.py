@@ -21,6 +21,11 @@ from typing import Any
 
 import httpx
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from verlet.api_client import AuthenticatedClient
+
 DEFAULT_BASE = os.environ.get("VERLET_API_URL", "https://api.verlet.co")
 
 CATALOG_RESEARCH_BUNDLES_PATH = "/api/platform/v1/catalog/research-bundles"
@@ -90,3 +95,60 @@ async def redeem_bundle_code(
             raise RedeemError(resp.status_code, detail)
         resp.raise_for_status()
         return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-08 — authenticated bundle list / detail wrappers.
+#
+# Both routes 401 when the bearer is missing/expired. We surface the verbatim
+# string ``"not authenticated; run verlet auth login"`` on stderr and exit 1
+# directly from this module to keep the error path byte-stable. Other callers
+# (commands.py) catch SystemExit only by re-raising; they never paper over.
+#
+# `AuthenticatedClient` is sync (httpx.Client under the hood). We keep these
+# wrappers `async` for parity with the rest of bundles/_api.py + the broader
+# verlet codebase pattern: commands.py calls ``asyncio.run(fetch_*(...))`` so
+# the entry point is uniform whether the inner work is real async (browse,
+# redeem) or sync-wrapped-in-async (list, detail).
+# ---------------------------------------------------------------------------
+
+
+BUNDLES_LIST_PATH = "/api/platform/v1/bundles"
+
+NOT_AUTHENTICATED_MSG = "not authenticated; run verlet auth login"
+"""Verbatim 401 stderr line for `bundles list` / `bundles info`.
+
+Byte-asserted in ``tests/bundles/test_list.py::test_list_401_prints_verbatim_auth_error``
+and ``tests/bundles/test_info.py::test_info_401_prints_verbatim_auth_error``.
+Editing the message intentionally requires updating both tests.
+"""
+
+def _exit_with_stderr(msg: str) -> "Any":
+    """Print ``msg`` to stderr and raise ``SystemExit(1)``.
+
+    Local helper -- click is imported inside the body so _api.py stays
+    free of the click-decoupling pattern from Plan 30-07 D-S1 (RedeemError).
+    For terminal exits we accept a click import here because the surface is
+    already terminal (no caller re-entry expected).
+    """
+    import click
+
+    click.echo(msg, err=True)
+    raise SystemExit(1)
+
+
+async def fetch_bundles_list(
+    client: "AuthenticatedClient", *, include_inactive: bool = False
+) -> dict[str, Any]:
+    """GET /api/platform/v1/bundles — authenticated list (CLIBUNDLE-03).
+
+    ``include_inactive=True`` adds ``?include_inactive=true`` and surfaces
+    expired/revoked rows (D-BUNDLE1). 401 -> stderr verbatim auth error +
+    exit 1; everything else falls through ``raise_for_status``.
+    """
+    params = {"include_inactive": "true"} if include_inactive else None
+    resp = client.get(BUNDLES_LIST_PATH, params=params)
+    if resp.status_code == 401:
+        _exit_with_stderr(NOT_AUTHENTICATED_MSG)
+    resp.raise_for_status()
+    return resp.json()
