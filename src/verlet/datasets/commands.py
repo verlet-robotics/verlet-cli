@@ -217,6 +217,14 @@ def datasets_info(ctx: click.Context, slug: str, as_json: bool) -> None:
     is_flag=True,
     help="Suppress the Rich progress bar; errors still go to stderr.",
 )
+@click.option(
+    "--detach",
+    is_flag=True,
+    help=(
+        "Queue conversion + return job_id immediately (D-FORMAT1). Requires "
+        "--format. Reattach later with `verlet datasets jobs <job_id>`."
+    ),
+)
 @click.option("--parallel", default=8, type=int, help="Max concurrent downloads.")
 @click.option(
     "--resume/--no-resume",
@@ -244,6 +252,7 @@ def datasets_download(
     format: str | None,
     verbose: bool,
     quiet: bool,
+    detach: bool,
     parallel: int,
     resume: bool,
     dry_run: bool,
@@ -255,7 +264,19 @@ def datasets_download(
     ``/downloads/jobs/{id}`` until ready (D-FORMAT1 foreground default). On
     failure the verbatim ``error_message`` (and ``failed_stage`` if present)
     is printed to stderr and the CLI exits non-zero (D-FORMAT3 no auto-retry).
+
+    With ``--detach``, the CLI POSTs the conversion request, prints the
+    server-issued ``job_id``, and exits 0 immediately. The user can later run
+    ``verlet datasets jobs <job_id>`` to reattach to the polling loop. ``--detach``
+    is a no-op for native (200) manifests — there is no async job to background,
+    so the CLI errors out instead of silently downloading.
     """
+    # 0. --detach requires --format (D-FORMAT1). Foreground native (no --format)
+    # is already synchronous + has no server-side job to background — detaching
+    # is meaningless.
+    if detach and not format:
+        raise click.UsageError("--detach requires --format")
+
     # 1. Auth gate (D-MOD4) — fail fast pre-HTTP. Resolve the profile name from
     # the root --profile flag / VERLET_PROFILE env / credentials.json default,
     # then require_profile() to confirm an entry exists.
@@ -283,7 +304,8 @@ def datasets_download(
     )
 
     # 4. License acceptance (license file persists on first acceptance).
-    if not dry_run and not check_license_accepted():
+    # --detach (no download) skips the prompt the same way --dry-run does.
+    if not dry_run and not detach and not check_license_accepted():
         if not prompt_license_acceptance():
             console.print("[dim]Download cancelled.[/dim]")
             return
@@ -300,10 +322,27 @@ def datasets_download(
             )
         )
         if status_code == 202:
-            # Server enqueued a conversion job; drive the poll loop to
-            # completion (D-FORMAT1 foreground default). poll_conversion_job
-            # writes the failure path to stderr + raises SystemExit(1) per
-            # D-FORMAT3 — we don't need to catch it here.
+            # Server enqueued a conversion job. With --detach, we print the
+            # job_id and exit 0 immediately (D-FORMAT1 background mode); the
+            # user reattaches later via `verlet datasets jobs <id>`. Without
+            # --detach, drive the poll loop to completion (D-FORMAT1 foreground
+            # default) — poll_conversion_job writes the failure path to stderr
+            # + raises SystemExit(1) per D-FORMAT3.
+            job_id = body["job_id"]
+            if detach:
+                if quiet:
+                    # --detach --quiet: just the bare job_id on stdout, nothing
+                    # else (test_detach_quiet_prints_only_job_id).
+                    click.echo(job_id)
+                else:
+                    console.print(
+                        f"[green]queued[/green] job_id=[cyan]{job_id}[/cyan]"
+                    )
+                    console.print(
+                        f"reattach: [dim]verlet datasets jobs {job_id}[/dim]"
+                    )
+                return  # exit 0 — no polling, no download.
+
             from verlet.api_client import AuthenticatedClient
 
             poll_client = AuthenticatedClient(profile_name)
@@ -311,7 +350,7 @@ def datasets_download(
                 manifest = asyncio.run(
                     poll_conversion_job(
                         poll_client,
-                        body["job_id"],
+                        job_id,
                         verbose=verbose,
                         quiet=quiet,
                     )
@@ -320,6 +359,12 @@ def datasets_download(
                 poll_client.close()
         else:
             # 200 — native format; manifest is inlined in the response body.
+            # --detach against a native response is meaningless (no job to
+            # background); fail loudly instead of silently downloading.
+            if detach:
+                raise click.UsageError(
+                    "no conversion job to detach from; native format ready",
+                )
             manifest = body
     else:
         # variant is non-None here (validate_download_flags would have raised).
