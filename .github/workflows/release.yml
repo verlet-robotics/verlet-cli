@@ -1,0 +1,91 @@
+name: Release
+
+# Triggers on tag push (v*) — first publish of a tag goes through PyPI Trusted
+# Publishing. PyPI requires a manual approval the first time the workflow runs
+# in a new environment (`pypi`). Subsequent tag pushes auto-publish.
+#
+# Recipe-CI matrix (pipx-smoke + uvx-smoke) gates the release: if any smoke
+# job fails, the published artifact is automatically yanked-by-policy via the
+# downstream brew-bump workflow refusing to advance (Plan 30-13).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write  # PyPI Trusted Publishing (OIDC)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI via Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  pipx-smoke:
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+        python-version: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pipx
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pipx
+          python -m pipx ensurepath
+      - name: Install verlet via pipx
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Installing verlet==${VERSION}"
+          python -m pipx install "verlet==${VERSION}"
+      - name: Verify verlet --version
+        shell: bash
+        run: |
+          # pipx ensurepath only updates future shells; resolve the bin dir now.
+          BINDIR="$(python -m pipx environment --value PIPX_BIN_DIR)"
+          export PATH="$BINDIR:$PATH"
+          verlet --version
+
+  uvx-smoke:
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: astral-sh/setup-uv@v3
+      - name: Verify uvx verlet --version
+        run: uvx verlet --version
