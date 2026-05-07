@@ -1,34 +1,54 @@
-"""CLIDATA-06: pre-flight flag matrix (verlet/datasets/_validation.py). Wave 0 stubs."""
+"""CLIDATA-06: pre-flight flag matrix (verlet/datasets/_validation.py)."""
+import click
 import pytest
 
-PHASE_29_NOT_IMPLEMENTED = "Phase 29 implementation pending — green by Plan 02 Task 1"
 
-
-@pytest.mark.xfail(reason=PHASE_29_NOT_IMPLEMENTED, strict=True)
 def test_episode_ids_rejected_for_processed():
-    raise NotImplementedError("Plan 02 Task 1 (_validation.validate_download_flags)")
+    from verlet.datasets._validation import validate_download_flags
+    with pytest.raises(click.UsageError, match="episode_ids invalid for variant=processed"):
+        validate_download_flags(
+            modality="ego", variant="processed",
+            episode_ids="1,2,3", segment_ids=None, format=None,
+        )
 
 
-@pytest.mark.xfail(reason=PHASE_29_NOT_IMPLEMENTED, strict=True)
 def test_segment_ids_rejected_for_raw():
-    raise NotImplementedError("Plan 02 Task 1")
+    from verlet.datasets._validation import validate_download_flags
+    with pytest.raises(click.UsageError, match="segment_ids invalid for variant=raw"):
+        validate_download_flags(
+            modality="ego", variant="raw",
+            episode_ids=None, segment_ids="s1,s2", format=None,
+        )
 
 
-@pytest.mark.xfail(reason=PHASE_29_NOT_IMPLEMENTED, strict=True)
 def test_variant_required_on_ego_pure():
-    raise NotImplementedError("Plan 02 Task 1")
+    from verlet.datasets._validation import validate_download_flags
+    with pytest.raises(click.UsageError, match=r"--variant is required for ego"):
+        validate_download_flags(
+            modality="ego", variant=None,
+            episode_ids=None, segment_ids=None, format=None,
+        )
 
 
-@pytest.mark.xfail(reason=PHASE_29_NOT_IMPLEMENTED, strict=True)
 def test_variant_rejected_on_arm_pure():
-    raise NotImplementedError("Plan 02 Task 1")
+    from verlet.datasets._validation import validate_download_flags
+    with pytest.raises(click.UsageError, match="--variant is ego-only"):
+        validate_download_flags(
+            modality="arm", variant="raw",
+            episode_ids=None, segment_ids=None, format=None,
+        )
 
 
-@pytest.mark.xfail(reason=PHASE_29_NOT_IMPLEMENTED, strict=True)
 def test_non_native_format_rejected_pure():
-    raise NotImplementedError("Plan 02 Task 1")
+    from verlet.datasets._validation import validate_download_flags
+    with pytest.raises(click.UsageError, match="Phase 30 conversion engine"):
+        validate_download_flags(
+            modality="arm", variant=None,
+            episode_ids=None, segment_ids=None, format="hdf5",
+        )
 
 
-@pytest.mark.xfail(reason=PHASE_29_NOT_IMPLEMENTED, strict=True)
 def test_category_with_kind_teleop_rejected():
-    raise NotImplementedError("Plan 02 Task 1 (--category ego-only)")
+    from verlet.datasets._validation import validate_kind_category
+    with pytest.raises(click.UsageError, match=r"--category is ego-only"):
+        validate_kind_category(kind="teleop", category="cooking")
