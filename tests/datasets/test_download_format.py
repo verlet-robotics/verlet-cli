@@ -389,3 +389,293 @@ def test_poll_conversion_job_failed_without_failed_stage(
     assert "conversion failed: internal error" in captured.err
     # No stage suffix when failed_stage is None.
     assert "(stage:" not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Task 2: --format flag wired into ``verlet datasets download``
+# ---------------------------------------------------------------------------
+
+
+def _arm_detail(slug: str = "pick-and-place-yam-v3") -> dict:
+    """Mirror tests/datasets/test_download.py's helper for arm rows."""
+    return {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "slug": slug,
+        "title": "Pick and Place YAM v3",
+        "data_tiers": ["processed"],
+        "available_variants": ["processed"],
+    }
+
+
+def test_download_format_hdf5_polls_and_completes(
+    cli_runner, respx_mock, tmp_home, mock_arm_manifest_response,
+):
+    """``verlet datasets download <slug> --format hdf5`` — manifest endpoint
+    returns 202 + ``{job_id}``; CLI polls ``/downloads/jobs/<id>`` until
+    completed; download driver receives the inlined manifest."""
+    from verlet.cli import cli
+
+    _seed_default_profile(tmp_home)
+
+    slug = "pick-and-place-yam-v3"
+    respx_mock.get(
+        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+    ).respond(200, json=_arm_detail(slug))
+
+    # Manifest endpoint returns 202 + job_id (Manifest202Response).
+    respx_mock.get(
+        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+    ).respond(
+        202,
+        json={
+            "job_id": "job-7",
+            "status": "processing",
+            "poll_url": "/api/platform/v1/downloads/jobs/job-7",
+        },
+    )
+
+    # Job poll: one processing → completed with inlined manifest.
+    respx_mock.get(
+        "https://api.verlet.co/api/platform/v1/downloads/jobs/job-7",
+    ).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "job_id": "job-7",
+                    "status": "processing",
+                    "progress": {"current_episode": 1, "total_episodes": 3},
+                    "manifest": None,
+                    "error_message": None,
+                    "failed_stage": None,
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "job_id": "job-7",
+                    "status": "completed",
+                    "progress": None,
+                    "manifest": mock_arm_manifest_response,
+                    "error_message": None,
+                    "failed_stage": None,
+                },
+            ),
+        ]
+    )
+
+    with patch(
+        "verlet.datasets.convert.asyncio.sleep",
+        new=_async_noop_sleep,
+    ):
+        result = cli_runner.invoke(
+            cli,
+            [
+                "datasets",
+                "download",
+                slug,
+                "--format",
+                "hdf5",
+                "--dry-run",  # short-circuit before download_resolved
+                "--quiet",  # suppress Rich progress in test output
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+
+    # Manifest endpoint hit with ?format=hdf5.
+    manifest_calls = [
+        c for c in respx_mock.calls
+        if c.request.url.path
+        == f"/api/platform/v1/downloads/{slug}/manifest"
+    ]
+    assert manifest_calls, "manifest endpoint should have fired"
+    assert manifest_calls[-1].request.url.params.get("format") == "hdf5"
+
+    # Job poll endpoint hit at least twice (processing → completed).
+    poll_calls = [
+        c for c in respx_mock.calls
+        if c.request.url.path
+        == "/api/platform/v1/downloads/jobs/job-7"
+    ]
+    assert len(poll_calls) >= 2, (
+        f"expected ≥2 poll calls, got {len(poll_calls)}"
+    )
+
+
+async def _async_noop_sleep(_secs):
+    """Patch target for ``asyncio.sleep`` so polling tests stay instant."""
+    return None
+
+
+def test_download_no_format_native_200_no_poll(
+    cli_runner, respx_mock, tmp_home, mock_arm_manifest_response,
+):
+    """``verlet datasets download <slug>`` (no --format) — manifest 200 ↦
+    inline path; CLI does NOT poll ``/downloads/jobs/...`` at all."""
+    from verlet.cli import cli
+
+    _seed_default_profile(tmp_home)
+
+    slug = "pick-and-place-yam-v3"
+    respx_mock.get(
+        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+    ).respond(200, json=_arm_detail(slug))
+    respx_mock.get(
+        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+    ).respond(200, json=mock_arm_manifest_response)
+
+    result = cli_runner.invoke(
+        cli, ["datasets", "download", slug, "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+
+    # NO calls to /downloads/jobs/ — the 200 path stayed inline.
+    poll_calls = [
+        c for c in respx_mock.calls
+        if "/downloads/jobs/" in c.request.url.path
+    ]
+    assert poll_calls == [], (
+        f"native (no --format) path must not poll jobs endpoint; "
+        f"got {[c.request.url.path for c in poll_calls]}"
+    )
+
+
+def test_download_format_invalid_rejected_pre_http(
+    cli_runner, respx_mock, tmp_home,
+):
+    """Unknown ``--format`` value → click.BadParameter (exit 2). NO HTTP fires."""
+    from verlet.cli import cli
+
+    _seed_default_profile(tmp_home)
+
+    result = cli_runner.invoke(
+        cli,
+        [
+            "datasets",
+            "download",
+            "any-slug",
+            "--format",
+            "definitely-not-a-format",
+            "--dry-run",
+        ],
+    )
+    # click.BadParameter → exit 2.
+    assert result.exit_code == 2, result.output
+    # The validator's message is part of stderr/output.
+    output = (result.output or "") + (result.stderr or "")
+    assert "must be one of" in output, output
+
+    # Zero HTTP calls — validator fires before any network work.
+    assert len(respx_mock.calls) == 0, (
+        f"invalid --format must short-circuit before HTTP, "
+        f"got {len(respx_mock.calls)} calls"
+    )
+
+
+@pytest.mark.parametrize(
+    "fmt",
+    [
+        "lerobot-v2",
+        "lerobot-v3",
+        "hdf5",
+        "zarr",
+        "rlds",
+        "rosbag",
+        "robodm",
+        "egomimic",
+    ],
+)
+def test_download_all_eight_formats_send_format_param(
+    fmt, cli_runner, respx_mock, tmp_home, mock_arm_manifest_response,
+):
+    """All 8 supported formats reach the manifest endpoint with
+    ``?format=<fmt>``. Native (lerobot-v2) returns 200, others 202+poll."""
+    from verlet.cli import cli
+
+    _seed_default_profile(tmp_home)
+
+    slug = "pick-and-place-yam-v3"
+    respx_mock.get(
+        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+    ).respond(200, json=_arm_detail(slug))
+
+    if fmt == "lerobot-v2":
+        # Native — 200 + manifest, no polling.
+        respx_mock.get(
+            f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+        ).respond(200, json=mock_arm_manifest_response)
+        result = cli_runner.invoke(
+            cli,
+            [
+                "datasets",
+                "download",
+                slug,
+                "--format",
+                fmt,
+                "--dry-run",
+            ],
+        )
+    else:
+        # Non-native — 202 + job_id, then a single completed poll.
+        respx_mock.get(
+            f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+        ).respond(
+            202,
+            json={
+                "job_id": f"job-{fmt}",
+                "status": "processing",
+                "poll_url": f"/api/platform/v1/downloads/jobs/job-{fmt}",
+            },
+        )
+        respx_mock.get(
+            f"https://api.verlet.co/api/platform/v1/downloads/jobs/job-{fmt}",
+        ).respond(
+            200,
+            json={
+                "job_id": f"job-{fmt}",
+                "status": "completed",
+                "progress": None,
+                "manifest": mock_arm_manifest_response,
+                "error_message": None,
+                "failed_stage": None,
+            },
+        )
+        with patch(
+            "verlet.datasets.convert.asyncio.sleep",
+            new=_async_noop_sleep,
+        ):
+            result = cli_runner.invoke(
+                cli,
+                [
+                    "datasets",
+                    "download",
+                    slug,
+                    "--format",
+                    fmt,
+                    "--dry-run",
+                    "--quiet",
+                ],
+            )
+
+    assert result.exit_code == 0, f"format {fmt} failed: {result.output}"
+
+    manifest_calls = [
+        c for c in respx_mock.calls
+        if c.request.url.path
+        == f"/api/platform/v1/downloads/{slug}/manifest"
+    ]
+    assert manifest_calls, f"manifest endpoint missing for {fmt}"
+    assert manifest_calls[-1].request.url.params.get("format") == fmt
+
+
+def test_download_format_help_documents_option():
+    """``verlet datasets download --help`` text references ``--format``."""
+    from click.testing import CliRunner
+
+    from verlet.cli import cli
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["datasets", "download", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--format" in result.output, result.output
