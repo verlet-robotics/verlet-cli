@@ -449,3 +449,113 @@ def download(
             )
 
     asyncio.run(_drive_all())
+
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-09 Task 2 -- `verlet bundles export-manifest <id>` (CLIBUNDLE-06).
+#
+# Emits a portable, time-bounded manifest JSON for offline / air-gapped
+# pipelines. Per-dataset manifests are fetched via fetch_arm_manifest; if any
+# dataset would require conversion (202 + job_id) we abort with a hint
+# pointing at `verlet datasets download <slug> --format <fmt>` so the user
+# can pre-convert before re-running export-manifest. Reason: a portable
+# manifest emitted while a conversion is mid-flight would carry a job_id
+# instead of the file URLs the air-gapped consumer needs.
+# ---------------------------------------------------------------------------
+
+
+@bundles_group.command("export-manifest")
+@click.argument("bundle_id")
+@click.option(
+    "-o", "--out", default=None,
+    help="Output JSON path; defaults to ./<bundle_id>-manifest.json",
+)
+@click.option(
+    "--format", "fmt", default=None,
+    callback=lambda ctx, p, v: validate_format(v),
+    help=(
+        "Apply format hint to ALL bundle datasets. Supported: "
+        + ", ".join(SUPPORTED_FORMATS) + "."
+    ),
+)
+@click.pass_context
+def export_manifest(
+    ctx: click.Context,
+    bundle_id: str,
+    out: str | None,
+    fmt: str | None,
+) -> None:
+    """Emit a portable, time-bounded manifest for offline pipelines (CLIBUNDLE-06).
+
+    \b
+    The output JSON carries every per-dataset file URL + checksum + size,
+    suitable for air-gapped consumers that cannot reach api.verlet.co. URLs
+    are presigned with the same TTL the live download command uses; record
+    `expires_at` so the consumer knows when to re-export.
+
+    \b
+    Examples:
+      verlet bundles export-manifest stanford-egocentric-2024
+      verlet bundles export-manifest <id> --out manifest.json --format hdf5
+    """
+    from datetime import datetime, timezone
+
+    from verlet.api_client import AuthenticatedClient
+    from verlet.auth.profiles import resolve_profile_name
+    from verlet.bundles._api import fetch_bundle_detail
+    from verlet.datasets._api import fetch_arm_manifest
+
+    flag_profile = ctx.obj.get("profile") if ctx.obj else None
+    profile_name = resolve_profile_name(flag_profile)
+
+    async def _fetch_detail() -> dict:
+        client = AuthenticatedClient(profile_name)
+        try:
+            return await fetch_bundle_detail(client, bundle_id)
+        finally:
+            client.close()
+
+    bundle = asyncio.run(_fetch_detail())
+
+    output: dict = {
+        "bundle_id": bundle.get("bundle_id", bundle_id),
+        "bundle_slug": bundle.get("bundle_slug", ""),
+        "expires_at": bundle.get("expires_at"),
+        "format": fmt,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "datasets": [],
+    }
+
+    async def _drive() -> None:
+        for ds in bundle.get("datasets") or []:
+            slug = ds["slug"]
+            status_code, body = await fetch_arm_manifest(
+                profile_name, slug, format=fmt or "lerobot-v2",
+            )
+            if status_code != 200:
+                # 202 -- the manifest endpoint enqueued a conversion job
+                # rather than returning the file URLs we need for the
+                # portable export. Tell the user to pre-convert.
+                job_id = body.get("job_id", "<unknown>")
+                click.echo(
+                    f"manifest export requires native format or already-"
+                    f"converted dataset; dataset {slug} requires conversion "
+                    f"(job_id={job_id}). Run "
+                    f"`verlet datasets download {slug} --format "
+                    f"{fmt or 'lerobot-v2'}` first.",
+                    err=True,
+                )
+                raise SystemExit(1)
+            # body is a DownloadManifest -- pass through verbatim under the
+            # dataset entry, with the slug stamped on so air-gapped consumers
+            # can correlate without re-checking the bundle detail.
+            entry = {"slug": slug}
+            entry.update(body)
+            output["datasets"].append(entry)
+
+    asyncio.run(_drive())
+
+    out_path = Path(out) if out else Path(f"./{bundle_id}-manifest.json")
+    out_path.write_text(json.dumps(output, indent=2))
+    console.print(f"[green]wrote[/green] {out_path}")
