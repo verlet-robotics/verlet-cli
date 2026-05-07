@@ -62,13 +62,17 @@ def _api_url_and_headers(profile_name: str | None) -> tuple[str, dict[str, str]]
     for download — that path requires auth and ``require_profile()`` fails fast
     in commands.py before this helper is even called).
     """
+    from verlet.telemetry import current_user_agent
+
     name = resolve_profile_name(profile_name)
     profile = get_profile(name)
     if profile is None:
         # Anonymous path — no Authorization header. Use the api_client's
         # canonical default URL so dev/staging overrides still flow through
-        # one constant.
-        return (DEFAULT_API_URL, {})
+        # one constant. We DO send the User-Agent on every request per
+        # D-DIST1; default is bare ``verlet-cli/<v>`` until the user opts
+        # in via ``verlet config telemetry enable``.
+        return (DEFAULT_API_URL, {"User-Agent": current_user_agent()})
     client = AuthenticatedClient(name)
     try:
         return (client.api_url, client.headers())

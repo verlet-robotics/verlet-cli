@@ -71,6 +71,56 @@ def legacy_login(ctx: click.Context, api_url: str | None) -> None:
     showcase_login(api_url=resolved_api_url, profile_name=profile_name)
 
 
+# ---------------------------------------------------------------------------
+# verlet config telemetry status|enable|disable — CLIDIST-05 / D-DIST1.
+#
+# Local CLI config (separate from credentials.json). The flag persists in
+# ``~/.verlet/config.json`` with mode 0o600. Default = OFF. The User-Agent
+# header on every CLI -> backend request is bare ``verlet-cli/<version>``
+# until enabled, after which it includes ``python/<py> <os>/<arch>``.
+# ---------------------------------------------------------------------------
+
+
+@click.group("config")
+def config_group() -> None:
+    """Local CLI configuration (separate from credentials)."""
+
+
+@config_group.group("telemetry")
+def telemetry_cmd() -> None:
+    """Manage opt-in version telemetry."""
+
+
+@telemetry_cmd.command("status")
+def telemetry_status() -> None:
+    """Print 'enabled' or 'disabled' (default: disabled)."""
+    from verlet.telemetry import telemetry_enabled
+
+    click.echo("enabled" if telemetry_enabled() else "disabled")
+
+
+@telemetry_cmd.command("enable")
+def telemetry_enable_cmd() -> None:
+    """Opt in: every CLI request will send python/os/arch in the User-Agent."""
+    from verlet.config import load_config, save_config
+
+    cfg = load_config()
+    cfg["telemetry_enabled"] = True
+    save_config(cfg)
+    click.echo("Telemetry enabled. User-Agent will include python/os/arch.")
+
+
+@telemetry_cmd.command("disable")
+def telemetry_disable_cmd() -> None:
+    """Opt out: User-Agent reverts to bare 'verlet-cli/<version>'."""
+    from verlet.config import load_config, save_config
+
+    cfg = load_config()
+    cfg["telemetry_enabled"] = False
+    save_config(cfg)
+    click.echo("Telemetry disabled.")
+
+
 # Register subcommand groups
 from verlet.auth.commands import auth_group  # noqa: E402
 from verlet.bundles import bundles_group  # noqa: E402
@@ -80,6 +130,7 @@ from verlet.update import update as update_command  # noqa: E402
 
 cli.add_command(auth_group)
 cli.add_command(bundles_group)
+cli.add_command(config_group)
 cli.add_command(datasets_group)
 cli.add_command(ego_group)
 cli.add_command(update_command)

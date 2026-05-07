@@ -68,8 +68,18 @@ class AuthenticatedClient:
         return self._profile.get("kind", "")
 
     def headers(self) -> dict[str, str]:
-        """Return the ``Authorization`` header for the active profile."""
-        return {"Authorization": f"Bearer {self._profile['access_token']}"}
+        """Return ``Authorization`` + ``User-Agent`` headers for the active profile.
+
+        The ``User-Agent`` value comes from :func:`verlet.telemetry.current_user_agent`,
+        which honors the opt-in telemetry flag in ``~/.verlet/config.json`` (D-DIST1).
+        Default = OFF -> bare ``verlet-cli/<version>``.
+        """
+        from verlet.telemetry import current_user_agent
+
+        return {
+            "Authorization": f"Bearer {self._profile['access_token']}",
+            "User-Agent": current_user_agent(),
+        }
 
     # ------------------------------------------------------------------
     # Refresh

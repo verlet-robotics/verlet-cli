@@ -60,9 +60,10 @@ def test_build_user_agent_enabled_includes_python_os_arch(tmp_home):
         # The simplest assertion: the inside-parens body has no slashes
         # (path) and no command verbs.
         if needle in ("/",):
-            # We do allow the os/arch slash literal e.g. "linux/x86_64".
-            # Make sure no double slash / extra path-like segment slips in.
-            assert ua.count("/") == 2, (
+            # Three slashes are expected in the normal UA shape:
+            # verlet-cli/<v>, python/<py>, <os>/<arch>. More than that
+            # would indicate a leaked filesystem path.
+            assert ua.count("/") == 3, (
                 f"UA has unexpected slash density (paths leak?): {ua!r}"
             )
             continue
