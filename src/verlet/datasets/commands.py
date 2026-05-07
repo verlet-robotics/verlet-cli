@@ -435,3 +435,13 @@ def datasets_download(
 from verlet.datasets.push import push as push_command  # noqa: E402
 
 datasets_group.add_command(push_command)
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-06 (CLIDATA-07 SC4): register `verlet datasets jobs <job_id>` for
+# single-job reattach (listing deferred — backend listing endpoint absent).
+# ---------------------------------------------------------------------------
+
+from verlet.datasets.jobs import jobs as jobs_command  # noqa: E402
+
+datasets_group.add_command(jobs_command)
