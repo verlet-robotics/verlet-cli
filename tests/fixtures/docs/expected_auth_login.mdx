@@ -22,3 +22,26 @@ Sign in to Verlet via the OAuth device flow (default) or legacy showcase code.
 | `--api-url` | text |  | Override API base URL (default: https://api.verlet.co or the active profile's api_url). |
 | `--no-browser` | boolean |  | Do not open a browser; print the verification URL instead. |
 | `--kind` | choice | `'device'` | device = OAuth device flow (default). showcase = legacy access-code flow (finalized in Plan 28-04). |
+
+## Examples
+
+
+Examples:
+
+```bash recipe
+verlet auth login
+```
+
+
+Use a named profile (writes ~/.verlet/credentials.json under that key):
+
+```bash recipe
+verlet --profile staging auth login
+```
+
+
+Headless / SSH session -- print the URL instead of opening a browser:
+
+```bash recipe
+verlet auth login --no-browser
+```

@@ -24,6 +24,38 @@ from verlet.datasets.convert import SUPPORTED_FORMATS, validate_format
 from verlet.display import console
 
 
+_REDEEM_EPILOG = """\b
+Examples:
+
+```bash
+verlet bundles redeem ABCD-1234
+```
+
+\b
+Save the bearer to a named profile:
+
+```bash
+verlet --profile stanford bundles redeem ABCD-1234
+```
+"""
+
+
+_DOWNLOAD_EPILOG = """\b
+Examples:
+
+```bash
+verlet bundles download stanford-egocentric-2024
+```
+
+\b
+Apply a server-side format conversion to every dataset in the bundle:
+
+```bash
+verlet bundles download stanford-egocentric-2024 --format hdf5
+```
+"""
+
+
 @click.group("bundles")
 def bundles_group() -> None:
     """Browse, redeem, list, info, download Verlet research / purchased bundles."""
@@ -71,7 +103,7 @@ def browse(limit: int, as_json: bool) -> None:
 
     console.print(bundles_browse_table(items))
 
-@bundles_group.command("redeem")
+@bundles_group.command("redeem", epilog=_REDEEM_EPILOG)
 @click.argument("code")
 @click.option(
     "--email",
@@ -268,7 +300,7 @@ from pathlib import Path  # noqa: E402
 from verlet.download import DownloadPlanItem, download_resolved  # noqa: E402
 
 
-@bundles_group.command("download")
+@bundles_group.command("download", epilog=_DOWNLOAD_EPILOG)
 @click.argument("bundle_id")
 @click.option(
     "--variant",

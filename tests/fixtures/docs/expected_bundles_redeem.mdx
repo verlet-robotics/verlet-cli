@@ -32,3 +32,19 @@ Redeem a research-access code; save bearer token to ~/.verlet/credentials.json.
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `--email` | text |  | Email to associate with the redemption (server may require for first-time redemptions on new accounts). |
+
+## Examples
+
+
+Examples:
+
+```bash recipe
+verlet bundles redeem ABCD-1234
+```
+
+
+Save the bearer to a named profile:
+
+```bash recipe
+verlet --profile stanford bundles redeem ABCD-1234
+```

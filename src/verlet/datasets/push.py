@@ -37,7 +37,30 @@ POLL_INTERVAL_SECONDS: float = 3.0
 "every 2-3s" cadence and the format-conversion poll loop in convert.py."""
 
 
-@click.command("push")
+_PUSH_EPILOG = """\b
+Examples:
+
+```bash
+verlet datasets push imitate-cube --to huggingface://acme/imitate-cube
+```
+
+\b
+Set a HuggingFace token first if not already configured:
+
+```bash
+verlet auth tokens set hf hf_xxx
+```
+
+\b
+Convert before push (server-side rosetta):
+
+```bash
+verlet datasets push imitate-cube --to huggingface://acme/imitate-cube --format hdf5
+```
+"""
+
+
+@click.command("push", epilog=_PUSH_EPILOG)
 @click.argument("slug")
 @click.option(
     "--to",

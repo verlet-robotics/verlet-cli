@@ -171,7 +171,38 @@ def datasets_info(ctx: click.Context, slug: str, as_json: bool) -> None:
     console.print(bottom_table)
 
 
-@datasets_group.command("download")
+_DOWNLOAD_EPILOG = """\b
+Examples:
+
+```bash
+verlet datasets download imitate-cube
+```
+
+\b
+Convert to HDF5 before download (server-side conversion + foreground polling):
+
+```bash
+verlet datasets download imitate-cube --format hdf5
+```
+
+\b
+Queue conversion + return immediately; reattach later:
+
+```bash
+verlet datasets download imitate-cube --format hdf5 --detach
+verlet datasets jobs <job_id>
+```
+
+\b
+Ego dataset processed-variant download:
+
+```bash
+verlet datasets download stanford-cooking-ego --variant processed
+```
+"""
+
+
+@datasets_group.command("download", epilog=_DOWNLOAD_EPILOG)
 @click.argument("slug")
 @click.option(
     "--variant",

@@ -25,12 +25,51 @@ from .tokens import revoke_pat as _revoke_pat
 from .tokens import show_pat as _show_pat
 
 
+_LOGIN_EPILOG = """\b
+Examples:
+
+```bash
+verlet auth login
+```
+
+\b
+Use a named profile (writes ~/.verlet/credentials.json under that key):
+
+```bash
+verlet --profile staging auth login
+```
+
+\b
+Headless / SSH session -- print the URL instead of opening a browser:
+
+```bash
+verlet auth login --no-browser
+```
+"""
+
+
+_TOKENS_CREATE_EPILOG = """\b
+Examples:
+
+```bash
+verlet auth tokens create --name ci --scope read:datasets --scope write:push
+```
+
+\b
+30-day expiry:
+
+```bash
+verlet auth tokens create --name ci --scope read:catalog --expires-in 30d
+```
+"""
+
+
 @click.group(name="auth")
 def auth_group() -> None:
     """Manage authentication: login, logout, status, and tokens."""
 
 
-@auth_group.command("login")
+@auth_group.command("login", epilog=_LOGIN_EPILOG)
 @click.option(
     "--api-url",
     default=None,
@@ -160,7 +199,7 @@ def tokens_group() -> None:
     """Manage Personal Access Tokens (PATs)."""
 
 
-@tokens_group.command("create")
+@tokens_group.command("create", epilog=_TOKENS_CREATE_EPILOG)
 @click.option(
     "--name",
     required=True,
