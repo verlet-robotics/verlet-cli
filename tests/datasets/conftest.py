@@ -1,11 +1,18 @@
-"""Fixtures for tests/datasets/. Extends tests/auth/conftest.py."""
+"""Fixtures for tests/datasets/. Extends tests/auth/conftest.py.
+
+The `pytest_plugins = ["tests.auth.conftest"]` directive that wires in the
+auth conftest's `cli_runner` / `tmp_home` fixtures lives at the rootdir
+(`verlet-cli/conftest.py`) rather than here. Pytest 8+ deprecated
+`pytest_plugins` from non-top-level conftests because it implicitly affects
+the whole session, and the directive at the rootdir is exactly what
+`pytest tests/datasets/ tests/auth/` (combined) needs to avoid the
+"Plugin already registered under a different name" double-load error.
+"""
 from __future__ import annotations
 
 from typing import Any
 
 import pytest
-
-pytest_plugins = ["tests.auth.conftest"]
 
 
 @pytest.fixture
