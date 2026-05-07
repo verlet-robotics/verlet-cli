@@ -1,12 +1,15 @@
 name: Release
 
-# Triggers on tag push (v*) — first publish of a tag goes through PyPI Trusted
-# Publishing. PyPI requires a manual approval the first time the workflow runs
-# in a new environment (`pypi`). Subsequent tag pushes auto-publish.
-#
-# Recipe-CI matrix (pipx-smoke + uvx-smoke) gates the release: if any smoke
-# job fails, the published artifact is automatically yanked-by-policy via the
-# downstream brew-bump workflow refusing to advance (Plan 30-13).
+# Triggers:
+#   * push tag v* — full release path: build → publish (PyPI Trusted Publishing,
+#     first run requires admin approval in the `pypi` environment) →
+#     pipx-smoke + uvx-smoke (post-publish smoke matrices) + brew-bump
+#     (auto-PR against verlet-robotics/homebrew-verlet).
+#   * pull_request (non-draft) — only the recipe-staging matrix runs. Walks
+#     frontend/docs/content/cli/**.mdx in verlet-server@main, extracts every
+#     ```bash recipe fence, and runs each against staging-api.verlet.co.
+#     Failures block merge per D-DIST4 (CLIDIST-07).
+#   * workflow_dispatch — only `build` runs (manual artifact debugging).
 
 on:
   push:
