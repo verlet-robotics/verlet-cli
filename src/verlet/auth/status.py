@@ -250,6 +250,23 @@ def render_status(
                     f"({profile.get('expires_at')})"
                 )
         click.echo(f"Issued:      {profile.get('issued_at', '<unknown>')}")
+    elif kind == "bundle_grant":
+        # Plan 30-07: research-bundle redemption profile (D-BUNDLE2). Has no
+        # refresh path -- CLI re-redeems the original code to extend access.
+        click.echo(f"Bundle:      {profile.get('bundle_slug', '<unknown>')}")
+        click.echo(f"Token:       {_mask(profile.get('access_token'))}")
+        if expires_at:
+            if expired:
+                click.secho(
+                    "EXPIRED -- re-run `verlet bundles redeem <code>` to refresh.",
+                    fg="red",
+                    bold=True,
+                )
+            else:
+                click.echo(
+                    f"Expires:     {_humanize_seconds(expires_in)}  "
+                    f"({profile.get('expires_at')})"
+                )
     else:
         click.echo(f"Unknown kind '{kind}'.")
 

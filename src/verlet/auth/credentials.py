@@ -7,7 +7,7 @@ Schema (per Phase 28 Research §3-§5):
       "default_profile": "default",
       "profiles": {
         "<name>": {
-          "kind": "device_flow" | "pat" | "showcase_access_code",
+          "kind": "device_flow" | "pat" | "showcase_access_code" | "bundle_grant",
           "access_token": "<bearer-string>",
           "api_url": "https://api.verlet.co",
           ... kind-specific fields ...
@@ -32,7 +32,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-ProfileKind = Literal["device_flow", "pat", "showcase_access_code"]
+ProfileKind = Literal["device_flow", "pat", "showcase_access_code", "bundle_grant"]
 CREDENTIALS_FILENAME = "credentials.json"
 LEGACY_TOKEN_FILENAME = "token.json"
 SCHEMA_VERSION = 1
@@ -216,3 +216,37 @@ def read_hf_token(profile_name: str) -> str | None:
         return None
     value = profile.get("hf_token")
     return value if isinstance(value, str) else None
+
+# ---------------------------------------------------------------------------
+# Plan 30-07 (D-BUNDLE2): bundle_grant profile kind for redeemed research
+# codes. The token is short-lived (server-issued expires_at), has no refresh
+# path (the CLI re-redeems the original code to refresh per D-BUNDLE2), and
+# carries a `bundle_slug` identifying the research bundle it grants access to.
+# ---------------------------------------------------------------------------
+
+
+def upsert_bundle_grant_profile(
+    profile_name: str,
+    *,
+    access_token: str,
+    expires_at: str,
+    bundle_slug: str,
+) -> None:
+    """Persist a bundle-grant profile (D-BUNDLE2 idempotent overwrite).
+
+    Re-redeeming the same code produces a fresh ``access_token`` /
+    ``expires_at`` pair that fully replaces the previous profile entry —
+    we never merge fields across redemptions because the prior token is
+    no longer valid once the server reissues.
+
+    The atomic ``save_credentials`` helper preserves 0600 mode on POSIX,
+    satisfying the Phase 28 invariant that protects every bearer token.
+    """
+    doc = load_credentials()
+    doc["profiles"][profile_name] = {
+        "kind": "bundle_grant",
+        "access_token": access_token,
+        "expires_at": expires_at,
+        "bundle_slug": bundle_slug,
+    }
+    save_credentials(doc)

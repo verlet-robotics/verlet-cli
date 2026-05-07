@@ -68,3 +68,56 @@ def browse(limit: int, as_json: bool) -> None:
         return
 
     console.print(bundles_browse_table(items))
+
+@bundles_group.command("redeem")
+@click.argument("code")
+@click.option(
+    "--email",
+    default=None,
+    help=(
+        "Email to associate with the redemption (server may require for "
+        "first-time redemptions on new accounts)."
+    ),
+)
+@click.pass_context
+def redeem(ctx: click.Context, code: str, email: str | None) -> None:
+    """Redeem a research-access code; save bearer token to ~/.verlet/credentials.json.
+
+    \b
+    D-BUNDLE2 idempotent: re-redeeming the same code overwrites the local
+    profile entry with the server-issued (fresh) token. Revoked / expired
+    codes return 410 Gone with a verbatim server detail; unknown codes
+    return 404 with "Invalid code".
+
+    \b
+    Examples:
+      verlet bundles redeem ABCD-1234
+      verlet --profile staging bundles redeem ABCD-1234
+    """
+    # Local imports keep the cold-import path of `verlet bundles browse` lean.
+    from verlet.auth.credentials import upsert_bundle_grant_profile
+    from verlet.auth.profiles import resolve_profile_name
+    from verlet.bundles._api import RedeemError, redeem_bundle_code
+
+    flag_profile = ctx.obj.get("profile") if ctx.obj else None
+    profile_name = resolve_profile_name(flag_profile)
+
+    try:
+        response = asyncio.run(redeem_bundle_code(code, email=email))
+    except RedeemError as exc:
+        click.echo(exc.detail, err=True)
+        raise SystemExit(1)
+    except Exception as exc:  # network down, 5xx, etc.
+        click.echo(f"redeem failed: {exc}", err=True)
+        raise SystemExit(1)
+
+    upsert_bundle_grant_profile(
+        profile_name,
+        access_token=response["access_token"],
+        expires_at=response["expires_at"],
+        bundle_slug=response["bundle_slug"],
+    )
+    console.print(
+        f"[green]Redeemed.[/green] Bundle: [cyan]{response['bundle_slug']}[/cyan], "
+        f"expires: {response['expires_at']}"
+    )
