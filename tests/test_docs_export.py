@@ -134,3 +134,73 @@ def test_golden_snapshot_login_and_redeem(tmp_path):
         assert live == expected, (
             f"snapshot drift in {rel}; regenerate fixture if change is intentional"
         )
+
+
+
+# ---------------------------------------------------------------------------
+# Plan 30-11 Task 2 -- production-command epilog coverage.
+#
+# Adds bash recipe blocks to >=6 user-facing commands so the Plan 30-13
+# recipe-CI walker has runnable inputs and `verlet <cmd> --help` shows a
+# canonical example. Tests pin the recipe contents byte-loosely (substring
+# match) so wording can evolve without churn, but the runnable-block count
+# is asserted as >=6 to satisfy CLIDIST-06 SC-recipe-coverage.
+# ---------------------------------------------------------------------------
+
+
+def test_help_text_for_auth_login_shows_recipe_marker():
+    """`verlet auth login --help` epilog renders the canonical example."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["auth", "login", "--help"])
+    assert result.exit_code == 0
+    assert "verlet auth login" in result.output
+
+
+def test_help_text_for_datasets_push_shows_hf_recipe(tmp_path):
+    """`verlet datasets push` ships an epilog-driven HF push recipe.
+
+    Asserts the generated MDX (not the docstring fallback) carries the
+    huggingface://acme/imitate-cube target as a ``bash recipe`` block, so
+    Plan 30-13 recipe-CI has a stable runnable block to lift.
+    """
+    runner = CliRunner()
+    result = runner.invoke(cli, ["datasets", "push", "--help"])
+    assert result.exit_code == 0
+    assert "huggingface://acme/imitate-cube" in result.output
+
+    out = _run_export(tmp_path)
+    body = (out / "datasets" / "push.mdx").read_text()
+    assert "## Examples" in body, "datasets push must have epilog -> Examples section"
+    assert "```bash recipe" in body
+    assert "huggingface://acme/imitate-cube" in body
+
+
+def test_help_text_for_bundles_redeem_shows_runnable_example(tmp_path):
+    """`verlet bundles redeem` ships an epilog-driven runnable example.
+
+    Like the datasets-push test above, asserts the recipe lives in the
+    generated MDX, not just the docstring.
+    """
+    runner = CliRunner()
+    result = runner.invoke(cli, ["bundles", "redeem", "--help"])
+    assert result.exit_code == 0
+    assert "verlet bundles redeem" in result.output
+
+    out = _run_export(tmp_path)
+    body = (out / "bundles" / "redeem.mdx").read_text()
+    assert "## Examples" in body
+    assert "```bash recipe" in body
+
+
+def test_at_least_six_commands_have_recipe_markers(tmp_path):
+    """>=6 commands ship ```bash recipe blocks for recipe-CI (Plan 30-13)."""
+    out = _run_export(tmp_path)
+    files_with_recipe = [
+        p.relative_to(out)
+        for p in out.rglob("*.mdx")
+        if "```bash recipe" in p.read_text()
+    ]
+    assert len(files_with_recipe) >= 6, (
+        f"only {len(files_with_recipe)} commands with bash recipe blocks: "
+        f"{files_with_recipe}"
+    )
