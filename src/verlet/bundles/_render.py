@@ -96,3 +96,50 @@ def bundles_list_table(items: list[dict[str, Any]]) -> Table:
             status_text,
         )
     return table
+
+
+def bundle_detail_view(bundle: dict):
+    """Authenticated bundle detail view (CLIBUNDLE-04).
+
+    Renders a Rich ``Group`` of (Panel(header), Table(datasets)). The header
+    Panel surfaces slug, name, kind, license, expiry, and citation -- the
+    citation row is conditional on ``kind == "research"`` per the must-have
+    truth (purchased bundles do not carry a citation row even if the field
+    is populated by the server). The datasets table inlines the per-dataset
+    ``available_formats`` list so a researcher can see at a glance whether
+    a bundle's datasets ship in lerobot-v2 / hdf5 / etc. before reaching
+    for ``verlet bundles download``.
+    """
+    from rich.console import Group
+    from rich.panel import Panel
+
+    from verlet.display import format_bytes
+
+    kind = bundle.get("kind", "") or ""
+    header_lines = [
+        f"[bold cyan]{bundle.get('bundle_slug', '')}[/bold cyan] - "
+        f"{bundle.get('bundle_name', '')}",
+        f"[dim]kind:[/dim] {kind}    "
+        f"[dim]license:[/dim] {bundle.get('license', '') or '-'}",
+        f"[dim]expires:[/dim] {bundle.get('expires_at') or '-'}",
+    ]
+    if kind == "research" and bundle.get("citation"):
+        header_lines.append(f"[dim]citation:[/dim] {bundle['citation']}")
+
+    ds_table = Table(title="Datasets in bundle", show_lines=False)
+    ds_table.add_column("Slug", style="cyan", no_wrap=True)
+    ds_table.add_column("Name")
+    ds_table.add_column("Episodes", justify="right")
+    ds_table.add_column("Formats")
+    ds_table.add_column("Size", justify="right")
+    for d in bundle.get("datasets", []) or []:
+        formats = d.get("available_formats") or []
+        ds_table.add_row(
+            d.get("slug", ""),
+            d.get("name", ""),
+            str(d.get("episode_count", 0)),
+            ", ".join(formats),
+            format_bytes(d.get("size_bytes", 0) or 0),
+        )
+
+    return Group(Panel(_NL.join(header_lines), title="Bundle"), ds_table)

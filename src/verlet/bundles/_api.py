@@ -34,10 +34,15 @@ CATALOG_RESEARCH_BUNDLES_PATH = "/api/platform/v1/catalog/research-bundles"
 async def fetch_bundles_browse(*, limit: int = 50) -> dict[str, Any]:
     """Anonymous public bundle catalog (CLIBUNDLE-01).
 
-    No Authorization header. Returns the deserialized JSON body
-    ``{"items": [{slug, name, dataset_count, license, citation, ...}, ...]}``.
+    No Authorization header. Sends User-Agent (telemetry-aware per D-DIST1
+    "every request, anonymous or authenticated"). Returns the deserialized
+    JSON body ``{"items": [{slug, name, dataset_count, license, citation, ...}, ...]}``.
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    from verlet.telemetry import current_user_agent
+
+    async with httpx.AsyncClient(
+        timeout=30.0, headers={"User-Agent": current_user_agent()}
+    ) as client:
         resp = await client.get(
             f"{DEFAULT_BASE}{CATALOG_RESEARCH_BUNDLES_PATH}",
             params={"limit": limit},
@@ -82,10 +87,14 @@ async def redeem_bundle_code(
     and 410 (revoked / expired). Other failures bubble up via
     ``raise_for_status()``.
     """
+    from verlet.telemetry import current_user_agent
+
     body: dict[str, Any] = {"code": code}
     if email:
         body["email"] = email
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(
+        timeout=30.0, headers={"User-Agent": current_user_agent()}
+    ) as client:
         resp = await client.post(f"{DEFAULT_BASE}{REDEEM_PATH}", json=body)
         if resp.status_code in (404, 410):
             try:
@@ -114,6 +123,7 @@ async def redeem_bundle_code(
 
 
 BUNDLES_LIST_PATH = "/api/platform/v1/bundles"
+BUNDLE_DETAIL_PATH = "/api/platform/v1/bundles/{bundle_id}"
 
 NOT_AUTHENTICATED_MSG = "not authenticated; run verlet auth login"
 """Verbatim 401 stderr line for `bundles list` / `bundles info`.
@@ -122,6 +132,15 @@ Byte-asserted in ``tests/bundles/test_list.py::test_list_401_prints_verbatim_aut
 and ``tests/bundles/test_info.py::test_info_401_prints_verbatim_auth_error``.
 Editing the message intentionally requires updating both tests.
 """
+BUNDLE_NOT_FOUND_MSG = "bundle not found"
+"""Verbatim 404 stderr line for `bundles info <unknown_id>`.
+
+Plan 30-03 D-S5 returns 404 (not 403) when the caller has no entitlement on
+the bundle, so this message intentionally covers both genuinely-missing IDs
+and cross-namespace masking. Byte-asserted in
+``tests/bundles/test_info.py::test_info_404_prints_bundle_not_found``.
+"""
+
 
 def _exit_with_stderr(msg: str) -> "Any":
     """Print ``msg`` to stderr and raise ``SystemExit(1)``.
@@ -150,5 +169,24 @@ async def fetch_bundles_list(
     resp = client.get(BUNDLES_LIST_PATH, params=params)
     if resp.status_code == 401:
         _exit_with_stderr(NOT_AUTHENTICATED_MSG)
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def fetch_bundle_detail(
+    client: "AuthenticatedClient", bundle_id: str
+) -> dict[str, Any]:
+    """GET /api/platform/v1/bundles/{bundle_id} (CLIBUNDLE-04).
+
+    401 -> stderr verbatim auth error + exit 1. 404 -> stderr "bundle not
+    found" + exit 1 (plan 30-03 D-S5 masks unauthorized callers as 404 to
+    avoid bundle-id enumeration cross-namespace).
+    """
+    path = BUNDLE_DETAIL_PATH.format(bundle_id=bundle_id)
+    resp = client.get(path)
+    if resp.status_code == 401:
+        _exit_with_stderr(NOT_AUTHENTICATED_MSG)
+    if resp.status_code == 404:
+        _exit_with_stderr(BUNDLE_NOT_FOUND_MSG)
     resp.raise_for_status()
     return resp.json()

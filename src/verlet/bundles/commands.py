@@ -194,3 +194,51 @@ def list_bundles(ctx: click.Context, show_all: bool, as_json: bool) -> None:
         return
 
     console.print(bundles_list_table(items))
+
+
+@bundles_group.command("info")
+@click.argument("bundle_id")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit machine-readable JSON to stdout instead of a Rich panel + table.",
+)
+@click.pass_context
+def info(ctx: click.Context, bundle_id: str, as_json: bool) -> None:
+    """Show bundle detail: included datasets, license, citation (CLIBUNDLE-04).
+
+    \b
+    Citation is shown only for kind == "research" bundles. Datasets are
+    listed with their available formats so a researcher knows whether a
+    bundle ships in lerobot-v2 / hdf5 / etc. before reaching for
+    `verlet bundles download`.
+
+    \b
+    Examples:
+      verlet bundles info stanford-egocentric-2024
+      verlet bundles info <bundle_uuid> --json
+    """
+    from verlet.api_client import AuthenticatedClient
+    from verlet.auth.profiles import resolve_profile_name
+    from verlet.bundles._api import fetch_bundle_detail
+    from verlet.bundles._render import bundle_detail_view
+
+    flag_profile = ctx.obj.get("profile") if ctx.obj else None
+    profile_name = resolve_profile_name(flag_profile)
+
+    async def _run() -> dict:
+        client = AuthenticatedClient(profile_name)
+        try:
+            return await fetch_bundle_detail(client, bundle_id)
+        finally:
+            client.close()
+
+    bundle = asyncio.run(_run())
+
+    if as_json:
+        click.echo(json.dumps(bundle, indent=2))
+        return
+
+    console.print(bundle_detail_view(bundle))
