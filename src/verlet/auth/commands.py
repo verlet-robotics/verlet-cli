@@ -17,6 +17,7 @@ from .credentials import load_credentials
 from .login import device_flow_login
 from .logout import logout as do_logout
 from .profiles import ProfileNotFoundError, resolve_profile_name
+from .showcase import showcase_login as _showcase_login
 from .status import render_status as _render_status
 from .tokens import create_pat as _create_pat
 from .tokens import list_pats as _list_pats
@@ -58,20 +59,21 @@ def auth_group() -> None:
 def cmd_login(ctx: click.Context, api_url: str | None, no_browser: bool, kind: str) -> None:
     """Sign in to Verlet via the OAuth device flow (default) or legacy showcase code."""
     profile_name = resolve_profile_name(ctx.obj.get("profile"))
-    if kind == "showcase":
-        click.echo(
-            "Showcase login is wired in Plan 28-04. For now, run "
-            "`verlet login` (legacy command).",
-            err=True,
-        )
-        raise SystemExit(2)
-
     # Resolve api_url: flag wins, else profile's existing api_url, else default.
     doc = load_credentials()
     existing = doc["profiles"].get(profile_name, {})
     resolved_api_url = (
         api_url or existing.get("api_url") or "https://api.verlet.co"
     )
+
+    if kind == "showcase":
+        _showcase_login(
+            api_url=resolved_api_url,
+            profile_name=profile_name,
+            access_code=None,
+        )
+        return
+
     device_flow_login(
         api_url=resolved_api_url,
         profile_name=profile_name,

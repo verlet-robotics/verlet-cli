@@ -4,7 +4,6 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 import click
 import httpx
 
-from verlet.config import get_api_url, save_credentials
 from verlet.display import console
 
 try:
@@ -40,32 +39,39 @@ def cli(ctx: click.Context, profile: str | None) -> None:
         sys.stderr.write(f"warning: legacy migration skipped: {exc}\n")
 
 
-@cli.command()
+@cli.command(
+    "login",
+    help="DEPRECATED: use `verlet auth login --kind showcase`.",
+)
 @click.option("--api-url", default=None, help="Override API URL")
-def login(api_url: str | None):
-    """Authenticate with your access code."""
-    code = click.prompt("Access code", hide_input=True)
+@click.pass_context
+def legacy_login(ctx: click.Context, api_url: str | None) -> None:
+    """Legacy showcase access-code login — deprecation shim into showcase_login.
 
-    base_url = api_url or get_api_url()
-    url = f"{base_url}/api/v1/ego/showcase/auth"
+    Removed in 0.7.0 per Research §13.4. The shim prints a one-line stderr
+    deprecation hint and routes the call into the same showcase_login()
+    helper that ``verlet auth login --kind showcase`` uses, so 0.5.x users
+    keep working without code changes.
+    """
+    import sys
 
-    try:
-        resp = httpx.post(url, json={"code": code}, timeout=30.0)
-        resp.raise_for_status()
-        data = resp.json()
-        save_credentials(data["token"], data["customer_name"], api_url)
-        console.print(f"[green]Authenticated as {data['customer_name']}[/green]")
-    except httpx.HTTPStatusError as e:
-        detail = "Invalid access code"
-        try:
-            detail = e.response.json().get("detail", detail)
-        except Exception:
-            pass
-        console.print(f"[red]Authentication failed: {detail}[/red]")
-        raise SystemExit(1)
-    except Exception as e:
-        console.print(f"[red]Connection error: {e}[/red]")
-        raise SystemExit(1)
+    from verlet.auth.credentials import load_credentials
+    from verlet.auth.profiles import resolve_profile_name
+    from verlet.auth.showcase import showcase_login
+
+    sys.stderr.write(
+        "DEPRECATED: `verlet login` will be removed in 0.7.0. "
+        "Use `verlet auth login --kind showcase` instead.\n"
+    )
+
+    profile_name = resolve_profile_name(ctx.obj.get("profile"))
+    # Resolve api_url: flag wins, else active profile's api_url, else default.
+    doc = load_credentials()
+    existing = doc["profiles"].get(profile_name, {})
+    resolved_api_url = (
+        api_url or existing.get("api_url") or "https://api.verlet.co"
+    )
+    showcase_login(api_url=resolved_api_url, profile_name=profile_name)
 
 
 @cli.command()
