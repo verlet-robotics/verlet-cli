@@ -8,9 +8,15 @@ are this module's job.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from .credentials import get_profile, load_credentials
+
+CI_PROFILE_NAME = "ci"
+CI_TOKEN_ENV = "VERLET_CI_TOKEN"
+CI_API_URL_ENV = "VERLET_API_URL"
+_DEFAULT_API_URL = "https://api.verlet.co"
 
 
 class ProfileNotFoundError(Exception):
@@ -37,11 +43,25 @@ def require_profile(name: str) -> dict[str, Any]:
     Used by commands that need an existing profile (status, tokens, logout).
     Lazy-create commands (login) should NOT call this — they create the
     profile on success.
+
+    CI fallback: when ``name == "ci"`` and no on-disk profile exists, but the
+    ``VERLET_CI_TOKEN`` env var is set, synthesize an in-memory ``pat``-kind
+    profile so recipe-CI runners (Plan 30-13) can invoke ``verlet …`` without
+    writing ``~/.verlet/credentials.json``. On-disk ci profile (if present)
+    always wins, so a developer's local ``--profile ci`` setup overrides env.
     """
     entry = get_profile(name)
-    if entry is None:
-        raise ProfileNotFoundError(
-            f"No profile named '{name}' "
-            f"(run `verlet --profile {name} auth login` to create it)."
-        )
-    return entry
+    if entry is not None:
+        return entry
+    if name == CI_PROFILE_NAME:
+        ci_token = os.environ.get(CI_TOKEN_ENV)
+        if ci_token:
+            return {
+                "kind": "pat",
+                "access_token": ci_token,
+                "api_url": os.environ.get(CI_API_URL_ENV) or _DEFAULT_API_URL,
+            }
+    raise ProfileNotFoundError(
+        f"No profile named '{name}' "
+        f"(run `verlet --profile {name} auth login` to create it)."
+    )

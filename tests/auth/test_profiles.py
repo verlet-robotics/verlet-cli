@@ -73,3 +73,57 @@ def test_profile_isolation(tmp_home, cli_runner):
     assert require_profile("ci")["access_token"] == "pat_a_b"
     with pytest.raises(ProfileNotFoundError):
         require_profile("does-not-exist")
+
+
+# ---------------------------------------------------------------------------
+# CI fallback: --profile ci + VERLET_CI_TOKEN env synthesizes an in-memory
+# pat-kind profile when no on-disk profile exists. Lets recipe-CI runners
+# (Plan 30-13) invoke `verlet ...` without writing credentials.json.
+# ---------------------------------------------------------------------------
+
+
+def test_ci_fallback_synthesizes_from_env(tmp_home, monkeypatch):
+    """No on-disk profile + VERLET_CI_TOKEN set → synth pat profile from env."""
+    monkeypatch.setenv("VERLET_CI_TOKEN", "pat_envlookup_envsecret")
+    monkeypatch.delenv("VERLET_API_URL", raising=False)
+    profile = require_profile("ci")
+    assert profile["kind"] == "pat"
+    assert profile["access_token"] == "pat_envlookup_envsecret"
+    assert profile["api_url"] == "https://api.verlet.co"
+
+
+def test_ci_fallback_honors_VERLET_API_URL(tmp_home, monkeypatch):
+    """Synthesized profile picks up VERLET_API_URL when set (recipe-CI sets it to staging)."""
+    monkeypatch.setenv("VERLET_CI_TOKEN", "pat_x_y")
+    monkeypatch.setenv("VERLET_API_URL", "https://staging-api.verlet.co")
+    profile = require_profile("ci")
+    assert profile["api_url"] == "https://staging-api.verlet.co"
+
+
+def test_ci_fallback_does_not_apply_to_other_profiles(tmp_home, monkeypatch):
+    """VERLET_CI_TOKEN must NOT synthesize for profile names other than 'ci'."""
+    monkeypatch.setenv("VERLET_CI_TOKEN", "pat_x_y")
+    with pytest.raises(ProfileNotFoundError):
+        require_profile("default")
+    with pytest.raises(ProfileNotFoundError):
+        require_profile("staging")
+
+
+def test_ci_fallback_raises_when_env_missing(tmp_home, monkeypatch):
+    """No on-disk profile + no env → still raises (no silent fallback)."""
+    monkeypatch.delenv("VERLET_CI_TOKEN", raising=False)
+    with pytest.raises(ProfileNotFoundError):
+        require_profile("ci")
+
+
+def test_on_disk_ci_profile_takes_precedence_over_env(tmp_home, monkeypatch):
+    """On-disk ci profile wins over VERLET_CI_TOKEN env (developer override)."""
+    creds.upsert_profile(
+        "ci",
+        kind="pat",
+        access_token="pat_ondisk_ondisk",
+        api_url="https://api.verlet.co",
+    )
+    monkeypatch.setenv("VERLET_CI_TOKEN", "pat_env_env")
+    profile = require_profile("ci")
+    assert profile["access_token"] == "pat_ondisk_ondisk"
