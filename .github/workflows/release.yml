@@ -162,3 +162,130 @@ jobs:
           # HF_TOKEN for `verlet datasets push --to huggingface://...` recipes
           HF_TOKEN: ${{ secrets.VERLET_STAGING_HF_TOKEN }}
         run: pytest tests/recipes/ -v -m staging
+
+  # Phase 35 D-CLIREF1: cross-repo docs PR job. After a successful PyPI
+  # release (publish + pipx-smoke + uvx-smoke all green), regenerate
+  # teleop-manager/frontend/docs/content/docs/cli/ via `verlet docs export`
+  # and mirror verlet-cli/CHANGELOG.md to .../content/docs/changelog/index.mdx,
+  # then open a PR against verlet-robotics/verlet-server. Branch name is
+  # deterministic (docs-bot/cli-ref-{VERSION}) so re-runs supersede instead of
+  # piling up open PRs (RESEARCH Pitfall 3).
+  #
+  # Requires: VERLET_SERVER_DOCS_PR_TOKEN secret — fine-grained PAT with
+  # contents:write + pull-requests:write on verlet-robotics/verlet-server.
+  # Operator-provisioned per deploy/RAILWAY.md "Phase 35 — Docs Content
+  # Cross-Repo Automation" section.
+  open-docs-pr:
+    needs: [publish, pipx-smoke, uvx-smoke]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout verlet-cli
+        uses: actions/checkout@v4
+        with:
+          path: verlet-cli
+
+      - name: Checkout verlet-server
+        uses: actions/checkout@v4
+        with:
+          repository: verlet-robotics/verlet-server
+          ref: main
+          path: verlet-server
+          token: ${{ secrets.VERLET_SERVER_DOCS_PR_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Install verlet-cli
+        working-directory: verlet-cli
+        run: uv pip install --system -e .
+
+      - name: Regenerate CLI MDX
+        working-directory: verlet-server/teleop-manager/frontend/docs
+        run: |
+          rm -rf content/docs/cli
+          mkdir -p content/docs/cli
+          verlet docs export --out content/docs/cli/
+
+      - name: Mirror CHANGELOG (preserve milestone footer link)
+        working-directory: verlet-server/teleop-manager/frontend/docs
+        run: |
+          mkdir -p content/docs/changelog
+          # Path traversal: working-directory is verlet-server/teleop-manager/frontend/docs/.
+          # Ascending FOUR `..` segments lands at $GITHUB_WORKSPACE
+          # (docs → frontend → teleop-manager → verlet-server → workspace-root),
+          # then descend into the sibling verlet-cli/ checkout. NOT five —
+          # five `..` would escape $GITHUB_WORKSPACE entirely and ENOENT at
+          # runtime on the first real release.
+          #
+          # 35-07-SUMMARY.md "Issues Encountered" — the seeded changelog
+          # carries a footer link to /docs/milestones/v2.2 separated by an
+          # `---` rule. Plan 35-10's overwrite must preserve it. We extract
+          # the footer block (everything from the trailing `---` rule
+          # onwards) BEFORE rewriting the file, then re-append it after the
+          # mirror so the milestone link survives release-bot regenerations.
+          FOOTER_FILE="$(mktemp)"
+          if [ -f content/docs/changelog/index.mdx ]; then
+            # Find last `---` separator that introduces the footer (after the
+            # frontmatter close). awk picks the LAST `---`-on-its-own line
+            # and prints from there to EOF.
+            awk '
+              /^---$/ { last=NR; lines[NR]=$0; next }
+              { lines[NR]=$0 }
+              END {
+                if (last > 3) {
+                  for (i=last; i<=NR; i++) print lines[i]
+                }
+              }
+            ' content/docs/changelog/index.mdx > "$FOOTER_FILE"
+          fi
+          {
+            echo '---'
+            echo 'title: Changelog'
+            echo 'description: Notable changes to the verlet CLI, mirrored from verlet-cli/CHANGELOG.md.'
+            echo '---'
+            echo
+            echo '> Auto-refreshed from `verlet-cli/CHANGELOG.md` on every release.'
+            echo '> Edit the source file in verlet-cli, not this page.'
+            echo
+            cat ../../../../verlet-cli/CHANGELOG.md
+            if [ -s "$FOOTER_FILE" ]; then
+              echo
+              cat "$FOOTER_FILE"
+            fi
+          } > content/docs/changelog/index.mdx
+          rm -f "$FOOTER_FILE"
+
+      - name: Open / supersede docs PR
+        working-directory: verlet-server
+        env:
+          GH_TOKEN: ${{ secrets.VERLET_SERVER_DOCS_PR_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          BRANCH="docs-bot/cli-ref-${VERSION}"
+
+          # Close any open superseded docs-bot PRs (RESEARCH Pitfall 3).
+          for n in $(gh pr list --head 'docs-bot/cli-ref-*' --state open --json number --jq '.[].number'); do
+            gh pr close "$n" --comment "superseded by v${VERSION}"
+          done
+
+          git config user.name "verlet-docs-bot"
+          git config user.email "docs-bot@verlet.co"
+          git checkout -b "$BRANCH"
+          git add teleop-manager/frontend/docs/content/docs/cli teleop-manager/frontend/docs/content/docs/changelog
+          if git diff --cached --quiet; then
+            echo "No docs changes for v${VERSION}"; exit 0
+          fi
+          git commit -m "docs: refresh CLI ref + CHANGELOG for verlet v${VERSION}"
+          git push --set-upstream origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "docs: refresh CLI ref + CHANGELOG for verlet v${VERSION}" \
+            --body "Auto-generated by verlet-cli release workflow.
+
+          Regenerated from \`verlet docs export\` and \`verlet-cli/CHANGELOG.md\` at \`${GITHUB_SHA}\`.
+
+          Merge after a normal review pass." \
+            --label "docs"
