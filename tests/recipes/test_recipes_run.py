@@ -5,7 +5,7 @@ hermetic. The recipe-staging job in ``.github/workflows/release.yml`` is the
 only consumer that flips the gate on; locally a maintainer can run::
 
     VERLET_STAGING_TEST=1 \\
-    VERLET_DOCS_CONTENT_ROOT=$HOME/Documents/GitHub/verlet-server-gsd/teleop-manager/frontend/docs/content/cli \\
+    VERLET_DOCS_CONTENT_ROOT=$HOME/Documents/GitHub/verlet-server-gsd/teleop-manager/frontend/docs/content \\
     uv run pytest tests/recipes/ -v -m staging
 
 The job walks every ``*.mdx`` under ``VERLET_DOCS_CONTENT_ROOT``, extracts
@@ -53,10 +53,10 @@ def _content_root() -> Path:
     candidate = (
         Path(__file__).resolve().parents[3]
         / "verlet-server"
+        / "teleop-manager"
         / "frontend"
         / "docs"
         / "content"
-        / "cli"
     )
     if candidate.exists():
         return candidate

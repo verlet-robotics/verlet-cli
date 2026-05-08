@@ -6,9 +6,10 @@ name: Release
 #     pipx-smoke + uvx-smoke (post-publish smoke matrices) + brew-bump
 #     (auto-PR against verlet-robotics/homebrew-verlet).
 #   * pull_request (non-draft) — only the recipe-staging matrix runs. Walks
-#     frontend/docs/content/cli/**.mdx in verlet-server@main, extracts every
-#     ```bash recipe fence, and runs each against staging-api.verlet.co.
-#     Failures block merge per D-DIST4 (CLIDIST-07).
+#     teleop-manager/frontend/docs/content/**/*.mdx in verlet-server@main
+#     (recipes/, cli/, milestones/), extracts every ```bash recipe fence, and
+#     runs each against staging-api.verlet.co. Failures block merge per
+#     D-DIST4 (CLIDIST-07).
 #   * workflow_dispatch — only `build` runs (manual artifact debugging).
 
 on:
@@ -118,9 +119,12 @@ jobs:
           # Direct push is rejected per CONTEXT.md Claude's Discretion (D-DIST3).
           create_pullrequest: true
 
-  # Recipe-CI matrix (Plan 30-13 Task 5, CLIDIST-07, D-DIST4 quality gate).
-  # On every non-draft PR, walk frontend/docs/content/cli/**.mdx in
-  # verlet-robotics/verlet-server@main, extract every ```bash recipe block,
+  # Recipe-CI matrix (Plan 30-13 Task 5, CLIDIST-07, D-DIST4 quality gate;
+  # Phase 35 D-RECIPE2 pivoted the walker root from frontend/docs/content/cli
+  # to teleop-manager/frontend/docs/content so it discovers recipes/, cli/,
+  # AND milestones/ recursively).
+  # On every non-draft PR, walk teleop-manager/frontend/docs/content/**/*.mdx
+  # in verlet-robotics/verlet-server@main, extract every ```bash recipe block,
   # and run each against staging-api.verlet.co. Any non-zero exit blocks merge.
   # Skips drafts to limit staging quota.
   recipe-staging:
@@ -154,7 +158,7 @@ jobs:
           VERLET_API_URL: https://staging-api.verlet.co
           VERLET_PROFILE: ci
           VERLET_CI_TOKEN: ${{ secrets.VERLET_STAGING_CI_TOKEN }}
-          VERLET_DOCS_CONTENT_ROOT: ${{ github.workspace }}/verlet-server/frontend/docs/content/cli
+          VERLET_DOCS_CONTENT_ROOT: ${{ github.workspace }}/verlet-server/teleop-manager/frontend/docs/content
           # HF_TOKEN for `verlet datasets push --to huggingface://...` recipes
           HF_TOKEN: ${{ secrets.VERLET_STAGING_HF_TOKEN }}
         run: pytest tests/recipes/ -v -m staging

@@ -137,7 +137,12 @@ def test_recipe_staging_sets_required_env(workflow: dict):
     assert env["VERLET_API_URL"] == "https://staging-api.verlet.co"
     assert env["VERLET_PROFILE"] == "ci"
     # VERLET_DOCS_CONTENT_ROOT must point at the verlet-server checkout.
-    assert "verlet-server/frontend/docs/content/cli" in env["VERLET_DOCS_CONTENT_ROOT"]
+    # Phase 35 D-RECIPE2 pivoted the walker root from frontend/docs/content/cli
+    # to teleop-manager/frontend/docs/content (parent — discovers recipes/,
+    # cli/, AND milestones/ recursively).
+    assert "verlet-server/teleop-manager/frontend/docs/content" in env["VERLET_DOCS_CONTENT_ROOT"]
+    # Guard against regressing to the legacy bug-typo path.
+    assert env["VERLET_DOCS_CONTENT_ROOT"] != "${{ github.workspace }}/verlet-server/frontend/docs/content/cli"
 
 
 def test_recipe_staging_runs_pytest_with_marker(workflow: dict):
