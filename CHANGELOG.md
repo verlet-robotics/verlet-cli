@@ -5,6 +5,34 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] — 2026-05-09
+
+CI/distribution polish release — exercises the full release path
+(PyPI → smoke matrices → brew-bump → open-docs-pr) end-to-end after
+the v0.8.0 bootstrap. No CLI behavior changes.
+
+### Changed
+
+- **Homebrew install is live.** `brew install verlet-robotics/verlet/verlet`
+  installs the CLI from the [`homebrew-verlet`](https://github.com/verlet-robotics/homebrew-verlet)
+  tap. Future releases auto-PR formula bumps via
+  [`dawidd6/action-homebrew-bump-formula`](https://github.com/dawidd6/action-homebrew-bump-formula),
+  gated by `brew test-bot` CI on the tap.
+
+### Fixed
+
+- **CI: bump deprecated GitHub Actions to Node 24 versions** (#1).
+  `astral-sh/setup-uv` v3 → v8, `actions/checkout` v4 → v6,
+  `actions/upload-artifact` v4 → v7, `actions/download-artifact` v4 → v8,
+  `actions/setup-python` v5 → v6. Resolves the `Unexpected input(s)
+  'python-version'` warning surfaced by v0.8.0 — v3 silently ignored
+  the input, so `uv build` and `uvx verlet` were running against
+  whatever Python the runner shipped with. v8 honors the pin.
+- **CI: provision `VERLET_SERVER_DOCS_PR_TOKEN` for cross-repo docs PR job.**
+  The `open-docs-pr` job in `release.yml` opens PRs against
+  `verlet-robotics/verlet-server` to refresh the CLI ref + CHANGELOG
+  mirror; the fine-grained PAT for that is now in GH Actions secrets.
+
 ## [0.8.0] — 2026-05-08
 
 CLI 1.0 polish release — wires the merged Phase 30 super-phase (formats +
