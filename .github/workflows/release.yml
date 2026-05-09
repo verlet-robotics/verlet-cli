@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: "3.12"
       - name: Build sdist + wheel
@@ -94,7 +94,7 @@ jobs:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
       - name: Verify uvx verlet --version
         run: uvx verlet --version
 
@@ -193,7 +193,7 @@ jobs:
           path: verlet-server
           token: ${{ secrets.VERLET_SERVER_DOCS_PR_TOKEN }}
 
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: "3.12"
 
