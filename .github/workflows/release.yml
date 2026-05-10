@@ -106,6 +106,29 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     steps:
+      # PyPI propagation race fix: dawidd6/action-homebrew-bump-formula calls
+      # `brew bump-formula-pr`, which uses brew's cached PyPI metadata snapshot
+      # to compute `pip install --uploaded-prior-to=<snapshot-time> verlet==X.Y.Z`.
+      # If brew's snapshot predates the publish job (typical on a same-tag
+      # release), the new version is filtered out and the dep-resolution step
+      # fails with "Unable to determine dependencies for verlet==<ver>".
+      # Forcing `brew update` here pulls a fresh snapshot before the action
+      # invokes bump-formula-pr (verlet-cli release run 25608444697 — first
+      # observed regression).
+      - name: Refresh Homebrew formula index (PyPI propagation race fix)
+        run: brew update --force --quiet
+
+      - name: Wait for PyPI to expose v${{ github.ref_name }} sdist
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          for i in $(seq 1 12); do
+            if curl -fsS "https://pypi.org/pypi/verlet/${VERSION}/json" >/dev/null 2>&1; then
+              echo "PyPI shows verlet==${VERSION} (attempt $i)"; exit 0
+            fi
+            echo "Waiting for PyPI propagation (attempt $i/12)…"; sleep 10
+          done
+          echo "PyPI still not showing verlet==${VERSION} after 2min"; exit 1
+
       - name: Bump Homebrew formula
         uses: dawidd6/action-homebrew-bump-formula@v3
         with:
@@ -197,9 +220,15 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install verlet-cli
+      - name: Install verlet-cli (uv tool — avoids PEP 668 on system Python)
         working-directory: verlet-cli
-        run: uv pip install --system -e .
+        run: |
+          # `uv pip install --system` fails on Ubuntu 24.04 because /usr is
+          # externally-managed (PEP 668). `uv tool install` handles its own
+          # venv and exposes the `verlet` script on PATH.
+          uv tool install --editable .
+          uv tool update-shell || true
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Regenerate CLI MDX
         working-directory: verlet-server/teleop-manager/frontend/docs
