@@ -52,42 +52,77 @@ def test_brew_bump_job_exists(workflow: dict):
     assert "brew-bump" in workflow["jobs"]
 
 
-def test_brew_bump_uses_dawidd6_action(workflow: dict):
-    job = workflow["jobs"]["brew-bump"]
-    uses = [step.get("uses", "") for step in job["steps"]]
-    assert any("dawidd6/action-homebrew-bump-formula" in u for u in uses), uses
-
-
 def test_brew_bump_only_on_tag_push(workflow: dict):
     job = workflow["jobs"]["brew-bump"]
     # Must guard so manual workflow_dispatch / PR runs don't bump the formula.
     assert "startsWith(github.ref, 'refs/tags/v')" in job["if"]
 
 
-def test_brew_bump_creates_pr_not_direct_push(workflow: dict):
-    """PR-with-auto-merge per CONTEXT.md Claude's Discretion — never direct push."""
-    job = workflow["jobs"]["brew-bump"]
-    bump_step = next(
-        s for s in job["steps"] if "dawidd6/action-homebrew-bump-formula" in s.get("uses", "")
-    )
-    assert bump_step["with"]["create_pullrequest"] is True
-
-
 def test_brew_bump_uses_tap_token_secret(workflow: dict):
+    """The job must use HOMEBREW_TAP_GITHUB_TOKEN (a fine-grained PAT with
+    write access to the tap repo), not the default GITHUB_TOKEN (which only
+    has access to verlet-cli)."""
     job = workflow["jobs"]["brew-bump"]
-    bump_step = next(
-        s for s in job["steps"] if "dawidd6/action-homebrew-bump-formula" in s.get("uses", "")
+    # Token appears in a checkout step's `with.token` and in run steps'
+    # `env.GH_TOKEN`. Either way, it must reference the named secret.
+    flat = str(job)
+    assert "HOMEBREW_TAP_GITHUB_TOKEN" in flat, (
+        "brew-bump must use HOMEBREW_TAP_GITHUB_TOKEN to push + open PRs "
+        "on verlet-robotics/homebrew-verlet"
     )
-    assert "HOMEBREW_TAP_GITHUB_TOKEN" in bump_step["with"]["token"]
 
 
 def test_brew_bump_targets_correct_tap(workflow: dict):
+    """The checkout step must clone verlet-robotics/homebrew-verlet."""
     job = workflow["jobs"]["brew-bump"]
-    bump_step = next(
-        s for s in job["steps"] if "dawidd6/action-homebrew-bump-formula" in s.get("uses", "")
+    checkouts = [
+        s
+        for s in job["steps"]
+        if s.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert any(
+        s.get("with", {}).get("repository") == "verlet-robotics/homebrew-verlet"
+        for s in checkouts
+    ), "brew-bump must check out verlet-robotics/homebrew-verlet"
+
+
+def test_brew_bump_creates_pr_not_direct_push(workflow: dict):
+    """D-DIST3 invariant: never push directly to the tap's main branch. The
+    job must use ``gh pr create`` on a feature branch instead.
+
+    Reformulated from the pre-0.8.6 dawidd6-action assertion after the
+    bump-formula-pr path was replaced with a hand-rolled workflow that has
+    explicit control over the git operations.
+    """
+    job = workflow["jobs"]["brew-bump"]
+    flat_run = "\n".join(s.get("run", "") for s in job["steps"] if "run" in s)
+    assert "gh pr create" in flat_run, (
+        "brew-bump must use `gh pr create` to land the formula update"
     )
-    assert bump_step["with"]["tap"] == "verlet-robotics/homebrew-verlet"
-    assert bump_step["with"]["formula"] == "verlet"
+    # Guard against accidental future regression to direct-push.
+    assert "git push origin main" not in flat_run, (
+        "brew-bump must not push directly to the tap's main branch"
+    )
+
+
+def test_brew_bump_reads_pypi_directly_not_bump_formula_pr(workflow: dict):
+    """Document the architectural choice: the bump reads the new sdist
+    url+sha256 from PyPI's JSON API (no `--uploaded-prior-to` cutoff) rather
+    than going through ``brew bump-formula-pr``, which has consistently
+    failed for sub-24h-old versions every release v0.8.1 → v0.8.5.
+
+    See the comment block at the top of the brew-bump job in
+    release.yml for the full story.
+    """
+    job = workflow["jobs"]["brew-bump"]
+    flat_run = "\n".join(s.get("run", "") for s in job["steps"] if "run" in s)
+    assert "pypi.org/pypi/verlet" in flat_run
+    # And the failed-path action must NOT be back.
+    uses = [s.get("uses", "") for s in job["steps"]]
+    assert not any("dawidd6/action-homebrew-bump-formula" in u for u in uses), (
+        "dawidd6/action-homebrew-bump-formula was removed in 0.8.6 because "
+        "its `brew bump-formula-pr` wrapper can't resolve <24h-old versions"
+    )
 
 
 # ---------------------------------------------------------------------------

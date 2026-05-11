@@ -5,6 +5,55 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.6] — 2026-05-11
+
+CI fix. No CLI behavior change.
+
+### Fixed
+
+- **brew-bump auto-PR finally works.** Five consecutive releases
+  (v0.8.1 → v0.8.5) failed the brew-bump step with `Unable to
+  determine dependencies for "verlet==X.Y.Z"`, leaving every release
+  with a manual tap commit as the workaround. Root cause:
+  `dawidd6/action-homebrew-bump-formula@v3` wraps
+  `brew bump-formula-pr`, which passes
+  `--uploaded-prior-to=<now - 24h>` to pip's dry-run resolver to make
+  resource bumps reproducible. Every just-tagged version is <24h old
+  by definition, so the resolver always filtered it out. Tried
+  `livecheck: true` in v0.8.5 — same failure (brew still walks
+  resources via the cutoff'd dry-run regardless of the
+  version-detection strategy).
+
+  Replaced with a hand-rolled bump job that:
+
+  1. Polls PyPI's JSON API for the just-published sdist (with a
+     12×10s wait loop for index propagation).
+  2. Reads `urls[].url` and `urls[].digests.sha256` directly — no
+     `--uploaded-prior-to` cutoff anywhere on this path.
+  3. Patches only the formula's top-level `url` + `sha256` (anchored
+     to the 2-space-indented pair via `^  url …\n  sha256 …` regex
+     so resource blocks are untouched).
+  4. Pushes a `bump/verlet-<version>` branch on the tap and opens a
+     PR via `gh pr create`. D-DIST3 invariant preserved: never
+     direct-push to the tap's main branch.
+
+  Resources (anyio, certifi, click, h11, httpcore, httpx, idna,
+  markdown-it-py, mdurl, pygments, rich, typing-extensions) stay
+  pinned by the tap on a separate cadence — maintainer-driven
+  `brew bump-formula-pr` calls when a security/compat bump is
+  actually needed. The auto-bump job only changes verlet's own
+  version.
+
+### Tests
+
+- `tests/test_release_workflow.py` rewritten to assert
+  behavior-invariants instead of the now-removed dawidd6 action:
+  job runs only on tag push, uses `HOMEBREW_TAP_GITHUB_TOKEN`,
+  checks out `verlet-robotics/homebrew-verlet`, calls `gh pr create`,
+  does NOT call `git push origin main`, reads from
+  `pypi.org/pypi/verlet`, and explicitly verifies the dawidd6 action
+  has NOT come back.
+
 ## [0.8.5] — 2026-05-11
 
 Internal cleanup. No user-visible behavior change.

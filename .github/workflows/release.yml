@@ -106,17 +106,21 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     steps:
-      # Brew's auto-update is harmless to keep — it ensures the
-      # bump-formula-pr code path runs against an up-to-date Homebrew
-      # core tap. Does NOT fix the version-resolution issue below
-      # (the original theory was wrong — see Wait step's comment).
-      - name: Refresh Homebrew formula index
-        run: brew update --force --quiet
+      # Hand-rolled bump (replaces dawidd6/action-homebrew-bump-formula@v3 as
+      # of c430d45 → 7d15417 — see CHANGELOG 0.8.6). The action wrapped
+      # `brew bump-formula-pr`, which passes `--uploaded-prior-to=<now - 24h>`
+      # to pip's dry-run resolver to make resource bumps reproducible. Every
+      # version we tag is <24h old by definition, so the resolver always
+      # filtered out the just-published version and exited 1. Tried
+      # `livecheck: true` in c430d45 — same failure on v0.8.5 because brew
+      # still walks the resources via the cutoff'd dry-run regardless.
+      #
+      # The hand-rolled path: read sdist url+sha256 from PyPI JSON directly,
+      # patch only the formula's top-level url+sha256 (resource bumps stay
+      # out of band — see "Resources are NOT auto-updated" in the PR body),
+      # push a feature branch on the tap, open a PR via `gh`. The tap's own
+      # brew-test-bot workflow gates the merge.
 
-      # Confirms PyPI has propagated the new sdist before we ask brew to
-      # bump. With Trusted Publishing the JSON API is usually live within
-      # seconds, but the index node `pip` queries can lag a minute or so;
-      # this loop fails the job fast if it stalls longer than expected.
       - name: Wait for PyPI to expose v${{ github.ref_name }} sdist
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
@@ -128,42 +132,105 @@ jobs:
           done
           echo "PyPI still not showing verlet==${VERSION} after 2min"; exit 1
 
-      # Without `livecheck: true`, the action runs `brew bump-formula-pr
-      # --version=<tag>` which uses pip's dry-run resolver with
-      # `--uploaded-prior-to=<now - 24h>` to make resource bumps
-      # reproducible. That cutoff filters out the version we *just*
-      # tagged (every tag is by definition <24h old), so the resolver
-      # fails with "Could not find a version that satisfies the
-      # requirement verlet==X.Y.Z" and the action exits 1 with no PR
-      # opened — the consistent failure across v0.8.1 → v0.8.4 runs.
-      #
-      # `livecheck: true` switches the action to
-      # `brew bump-formula-pr --livecheck`, which uses the formula's
-      # livecheck block (we added `livecheck { strategy :pypi }` in
-      # homebrew-verlet@c6eb054) to detect the new version via PyPI's
-      # JSON API directly — no `--uploaded-prior-to` cutoff. If brew
-      # *still* tries to dry-run resources with the same cutoff and the
-      # bump still fails, the fallback plan is a hand-rolled bump
-      # workflow that sed-patches url+sha256 and skips
-      # bump-formula-pr entirely.
-      - name: Bump Homebrew formula
-        uses: dawidd6/action-homebrew-bump-formula@v3
+      - name: Read sdist url + sha256 from PyPI JSON
+        id: pypi
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          JSON=$(curl -fsS "https://pypi.org/pypi/verlet/${VERSION}/json")
+          URL=$(echo "$JSON" | jq -r '.urls[] | select(.packagetype=="sdist") | .url')
+          SHA256=$(echo "$JSON" | jq -r '.urls[] | select(.packagetype=="sdist") | .digests.sha256')
+          if [ -z "$URL" ] || [ -z "$SHA256" ] || [ "$URL" = "null" ] || [ "$SHA256" = "null" ]; then
+            echo "Failed to read sdist info from PyPI JSON for verlet==${VERSION}" >&2
+            echo "JSON: $JSON" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "url=${URL}"         >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}"   >> "$GITHUB_OUTPUT"
+          echo "Resolved: ${URL}  sha256=${SHA256}"
+
+      - name: Check out homebrew-verlet
+        uses: actions/checkout@v6
         with:
+          repository: verlet-robotics/homebrew-verlet
           token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          tap: verlet-robotics/homebrew-verlet
-          formula: verlet
-          tag: ${{ github.ref_name }}
-          revision: ${{ github.sha }}
-          force: false
-          livecheck: true
-          # Document-of-intent: the action's earlier runs logged this as an
-          # "unexpected input" because the action's default IS to open a PR
-          # (no direct push). Leaving the explicit declaration keeps the
-          # CONTEXT.md D-DIST3 invariant visible in the workflow file and
-          # asserted by tests/test_release_workflow.py — if the action ever
-          # adds a `direct_push: true` knob, we'll want to be explicit that
-          # we don't take it.
-          create_pullrequest: true
+          path: homebrew-verlet
+
+      - name: Patch Formula/verlet.rb top-level url + sha256
+        working-directory: homebrew-verlet
+        env:
+          NEW_URL: ${{ steps.pypi.outputs.url }}
+          NEW_SHA256: ${{ steps.pypi.outputs.sha256 }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, sys
+
+          new_url = os.environ["NEW_URL"]
+          new_sha = os.environ["NEW_SHA256"]
+          f = pathlib.Path("Formula/verlet.rb")
+          text = f.read_text()
+
+          # Top-level url + sha256 lines are indented with exactly 2 spaces;
+          # resource url + sha256 are 4-space indented. Anchor the pattern to
+          # `^  url ` with re.MULTILINE so we never match a resource block.
+          # The pair is matched together to ensure we never replace one
+          # without the other.
+          pattern = re.compile(
+              r'^  url "[^"]+verlet-[0-9.]+\.tar\.gz"\n'
+              r'  sha256 "[a-f0-9]{64}"',
+              re.MULTILINE,
+          )
+          replacement = f'  url "{new_url}"\n  sha256 "{new_sha}"'
+          new_text, n = pattern.subn(replacement, text, count=1)
+          if n != 1:
+              sys.stderr.write(
+                  f"expected exactly 1 match for top-level url+sha pair, "
+                  f"found {n}\n"
+              )
+              sys.exit(1)
+          f.write_text(new_text)
+          print(f"Patched Formula/verlet.rb → {new_url}")
+          PY
+          echo "--- diff ---"
+          git diff Formula/verlet.rb
+
+      - name: Push branch + open PR on tap
+        working-directory: homebrew-verlet
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          VERSION: ${{ steps.pypi.outputs.version }}
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          # Idempotent no-op when nothing actually changed — covers
+          # re-running brew-bump on an already-bumped tap state.
+          if git diff --quiet Formula/verlet.rb; then
+            echo "Formula already at v${VERSION} — nothing to do."
+            exit 0
+          fi
+          BRANCH="bump/verlet-${VERSION}"
+          git config user.name  "verlet-release-bot"
+          git config user.email "release-bot@verlet.co"
+          git checkout -B "$BRANCH"
+          git add Formula/verlet.rb
+          git commit -m "verlet ${VERSION}"
+          git push -u origin "$BRANCH" --force-with-lease
+          # D-DIST3: open a PR, never push to main directly. The tap's
+          # brew-test-bot workflow runs the install matrix on the PR.
+          gh pr create \
+            --repo verlet-robotics/homebrew-verlet \
+            --base main \
+            --head "$BRANCH" \
+            --title "verlet ${VERSION}" \
+            --body "Automated bump from verlet-robotics/verlet-cli@${SHA} (tag ${TAG}).
+
+          The tap's brew-test-bot workflow will run the install matrix
+          (ubuntu-latest, macos-14, macos-15, macos-latest) on this PR.
+          Merge when green.
+
+          Resources are NOT auto-updated by this job — only the top-level
+          url + sha256 change. Resource bumps run on a separate cadence
+          via maintainer-driven \`brew bump-formula-pr\` calls."
 
   # Recipe-CI matrix (Plan 30-13 Task 5, CLIDIST-07, D-DIST4 quality gate;
   # Phase 35 D-RECIPE2 pivoted the walker root from frontend/docs/content/cli
