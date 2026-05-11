@@ -106,18 +106,17 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     steps:
-      # PyPI propagation race fix: dawidd6/action-homebrew-bump-formula calls
-      # `brew bump-formula-pr`, which uses brew's cached PyPI metadata snapshot
-      # to compute `pip install --uploaded-prior-to=<snapshot-time> verlet==X.Y.Z`.
-      # If brew's snapshot predates the publish job (typical on a same-tag
-      # release), the new version is filtered out and the dep-resolution step
-      # fails with "Unable to determine dependencies for verlet==<ver>".
-      # Forcing `brew update` here pulls a fresh snapshot before the action
-      # invokes bump-formula-pr (verlet-cli release run 25608444697 — first
-      # observed regression).
-      - name: Refresh Homebrew formula index (PyPI propagation race fix)
+      # Brew's auto-update is harmless to keep — it ensures the
+      # bump-formula-pr code path runs against an up-to-date Homebrew
+      # core tap. Does NOT fix the version-resolution issue below
+      # (the original theory was wrong — see Wait step's comment).
+      - name: Refresh Homebrew formula index
         run: brew update --force --quiet
 
+      # Confirms PyPI has propagated the new sdist before we ask brew to
+      # bump. With Trusted Publishing the JSON API is usually live within
+      # seconds, but the index node `pip` queries can lag a minute or so;
+      # this loop fails the job fast if it stalls longer than expected.
       - name: Wait for PyPI to expose v${{ github.ref_name }} sdist
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
@@ -129,6 +128,24 @@ jobs:
           done
           echo "PyPI still not showing verlet==${VERSION} after 2min"; exit 1
 
+      # Without `livecheck: true`, the action runs `brew bump-formula-pr
+      # --version=<tag>` which uses pip's dry-run resolver with
+      # `--uploaded-prior-to=<now - 24h>` to make resource bumps
+      # reproducible. That cutoff filters out the version we *just*
+      # tagged (every tag is by definition <24h old), so the resolver
+      # fails with "Could not find a version that satisfies the
+      # requirement verlet==X.Y.Z" and the action exits 1 with no PR
+      # opened — the consistent failure across v0.8.1 → v0.8.4 runs.
+      #
+      # `livecheck: true` switches the action to
+      # `brew bump-formula-pr --livecheck`, which uses the formula's
+      # livecheck block (we added `livecheck { strategy :pypi }` in
+      # homebrew-verlet@c6eb054) to detect the new version via PyPI's
+      # JSON API directly — no `--uploaded-prior-to` cutoff. If brew
+      # *still* tries to dry-run resources with the same cutoff and the
+      # bump still fails, the fallback plan is a hand-rolled bump
+      # workflow that sed-patches url+sha256 and skips
+      # bump-formula-pr entirely.
       - name: Bump Homebrew formula
         uses: dawidd6/action-homebrew-bump-formula@v3
         with:
@@ -138,9 +155,7 @@ jobs:
           tag: ${{ github.ref_name }}
           revision: ${{ github.sha }}
           force: false
-          # Open a PR; the tap repo's brew-test-bot workflow gates auto-merge.
-          # Direct push is rejected per CONTEXT.md Claude's Discretion (D-DIST3).
-          create_pullrequest: true
+          livecheck: true
 
   # Recipe-CI matrix (Plan 30-13 Task 5, CLIDIST-07, D-DIST4 quality gate;
   # Phase 35 D-RECIPE2 pivoted the walker root from frontend/docs/content/cli
