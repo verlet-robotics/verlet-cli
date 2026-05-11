@@ -407,4 +407,4 @@ jobs:
           Regenerated from \`verlet docs export\` and \`verlet-cli/CHANGELOG.md\` at \`${GITHUB_SHA}\`.
 
           Merge after a normal review pass." \
-            --label "docs"
+            --label "documentation"
