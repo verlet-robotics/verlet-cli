@@ -16,7 +16,7 @@ from rich.table import Table
 from .credentials import load_credentials
 from .login import device_flow_login
 from .logout import logout as do_logout
-from .profiles import ProfileNotFoundError, resolve_profile_name
+from .profiles import resolve_profile_name
 from .showcase import showcase_login as _showcase_login
 from .status import render_status as _render_status
 from .tokens import create_pat as _create_pat
@@ -123,13 +123,14 @@ def cmd_login(ctx: click.Context, api_url: str | None, no_browser: bool, kind: s
 @auth_group.command("logout")
 @click.pass_context
 def cmd_logout(ctx: click.Context) -> None:
-    """Log out the active profile (kind-aware)."""
+    """Log out the active profile (kind-aware).
+
+    ``ProfileNotFoundError`` propagates uncaught — its
+    ``click.ClickException`` base lets Click render it as
+    ``Error: No profile named '<name>' …`` on stderr with exit code 1.
+    """
     profile_name = resolve_profile_name(ctx.obj.get("profile"))
-    try:
-        do_logout(profile_name)
-    except ProfileNotFoundError as exc:
-        click.echo(str(exc), err=True)
-        raise SystemExit(1)
+    do_logout(profile_name)
 
 
 # ---------------------------------------------------------------------------
@@ -153,16 +154,17 @@ def cmd_logout(ctx: click.Context) -> None:
 )
 @click.pass_context
 def cmd_status(ctx: click.Context, json_output: bool, refresh: bool) -> None:
-    """Show the active profile's identity, token, scopes, and expiry."""
-    try:
-        rc = _render_status(
-            ctx.obj.get("profile"),
-            json_output=json_output,
-            refresh=refresh,
-        )
-    except ProfileNotFoundError as exc:
-        click.echo(str(exc), err=True)
-        raise SystemExit(1)
+    """Show the active profile's identity, token, scopes, and expiry.
+
+    ``ProfileNotFoundError`` propagates uncaught — its
+    ``click.ClickException`` base lets Click render it as
+    ``Error: No profile named '<name>' …`` on stderr with exit code 1.
+    """
+    rc = _render_status(
+        ctx.obj.get("profile"),
+        json_output=json_output,
+        refresh=refresh,
+    )
     if rc != 0:
         raise SystemExit(rc)
 

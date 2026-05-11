@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+import click
+
 from .credentials import get_profile, load_credentials
 
 CI_PROFILE_NAME = "ci"
@@ -19,8 +21,18 @@ CI_API_URL_ENV = "VERLET_API_URL"
 _DEFAULT_API_URL = "https://api.verlet.co"
 
 
-class ProfileNotFoundError(Exception):
-    """Raised when a command needs a profile but the named one doesn't exist."""
+class ProfileNotFoundError(click.ClickException):
+    """Raised when a command needs a profile but the named one doesn't exist.
+
+    Inherits from ``click.ClickException`` so Click's top-level handler in
+    ``cli.main()`` catches the exception automatically and renders the
+    message as ``Error: <message>`` on stderr with exit code 1 — rather
+    than letting it bubble up as an unhandled traceback. Without this
+    base, any subcommand that builds an ``AuthenticatedClient`` before a
+    profile exists (i.e. all of ``bundles``, ``datasets``, ``ego``,
+    ``auth tokens``) crashes with a 30-line Python stack trace for what
+    is just "you need to log in first."
+    """
 
 
 def resolve_profile_name(ctx_flag_value: str | None) -> str:

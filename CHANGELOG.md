@@ -5,6 +5,38 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.3] — 2026-05-11
+
+UX fix. No new functionality.
+
+### Fixed
+
+- **Auth-requiring commands no longer dump a Python traceback when
+  no profile exists.** Running any command that builds an
+  `AuthenticatedClient` (e.g. `verlet bundles list`,
+  `verlet auth tokens list`, `verlet datasets push`) without a
+  configured profile previously exited with a 30-line stack trace
+  ending in `ProfileNotFoundError: No profile named 'default'…`. Now
+  it prints `Error: No profile named 'default' (run `verlet
+  --profile default auth login` to create it).` on stderr and exits
+  1, uniformly across every subcommand. Implementation:
+  `ProfileNotFoundError` now inherits from `click.ClickException`, so
+  Click's top-level handler catches it for every command — the two
+  ad-hoc `except` blocks in `auth/commands.py` that masked this bug
+  for `auth status` and `auth logout` only have been removed.
+
+### Known limitations (not fixed in 0.8.3)
+
+- **Anonymous-OK commands still surface raw `httpx.HTTPStatusError`
+  tracebacks on 4xx/5xx responses.** E.g. `verlet datasets info
+  <nonexistent-slug>` returns a 404 from the server and the CLI
+  prints a traceback ending in
+  `httpx.HTTPStatusError: Client error '404 Not Found' …`. This is
+  unrelated to the `ProfileNotFoundError` path and is tracked as a
+  separate cleanup — wrap each `resp.raise_for_status()` call in a
+  helper that converts `HTTPStatusError` to a `click.ClickException`
+  with a status-code-aware friendly message.
+
 ## [0.8.2] — 2026-05-11
 
 Dependency hygiene release. No CLI behavior changes.
