@@ -5,6 +5,26 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.2] — 2026-05-11
+
+Dependency hygiene release. No CLI behavior changes.
+
+### Changed
+
+- **Drop unused `huggingface_hub` runtime dependency.** The CLI declared
+  `huggingface_hub>=0.32` in `pyproject.toml` but did not import it
+  anywhere in `src/` (confirmed via
+  `grep -rn 'huggingface_hub\|from huggingface' src/` → no matches).
+  HuggingFace pushes are server-side via
+  `POST /api/platform/v1/downloads/{slug}/push`; the CLI only parses
+  `huggingface://org/repo` URLs (regex in `verlet/datasets/_validation.py`)
+  and forwards `HF_TOKEN`. The dep pulled in `hf_xet` (a Rust extension
+  whose source build fails inside Homebrew's `superenv` because
+  superenv strips the `-I` flags `cc-rs` hands clang for `aws-lc-sys`),
+  which forced the homebrew-verlet tap into a hand-rolled wheel-pinning
+  install. Removing the dep lets the tap revert to the stock
+  `virtualenv_install_with_resources` install path.
+
 ## [0.8.1] — 2026-05-09
 
 CI/distribution polish release — exercises the full release path
