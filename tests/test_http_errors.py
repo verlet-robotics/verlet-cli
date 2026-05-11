@@ -1,0 +1,122 @@
+"""Regression test for the 0.8.4 fix: API helpers in ``datasets/_api.py``
+and ``bundles/_api.py`` should convert ``httpx.HTTPStatusError`` (4xx/5xx)
+and ``httpx.RequestError`` (network failures) into
+``click.ClickException`` so the CLI prints
+``Error: <context>: <detail>`` instead of a raw Python traceback.
+
+Pre-existing bug (0.8.0–0.8.3, before this fix): ``resp.raise_for_status()``
+was called bare in those helpers, so a 404 from
+``GET /api/platform/v1/catalog/datasets/<bad-slug>`` produced this user-
+facing output:
+
+    Traceback (most recent call last):
+      ... 30+ frames ...
+    httpx.HTTPStatusError: Client error '404 Not Found' for url
+    'https://api.verlet.co/api/platform/v1/catalog/datasets/...'
+
+Fix: wrap each call site with ``verlet._http_errors.friendly_http(context)``,
+which converts both exception types to ``click.ClickException`` carrying
+the FastAPI-style ``{"detail": …}`` envelope when present.
+"""
+
+from __future__ import annotations
+
+import httpx
+import pytest
+
+from verlet._http_errors import friendly_http
+from verlet.cli import cli
+
+
+# ---------------------------------------------------------------------------
+# Unit-level: the context manager itself
+# ---------------------------------------------------------------------------
+
+
+def test_friendly_http_passes_through_on_success():
+    """No exception inside the block → no exception raised."""
+    with friendly_http("doing something"):
+        x = 1 + 1
+    assert x == 2
+
+
+def test_friendly_http_converts_404_with_detail():
+    """FastAPI-style ``{"detail": "..."}`` envelope surfaces verbatim."""
+    import click
+
+    response = httpx.Response(
+        404,
+        json={"detail": "Dataset 'unknown' not found"},
+        request=httpx.Request("GET", "https://example.com/x"),
+    )
+    with pytest.raises(click.ClickException) as exc_info:
+        with friendly_http("fetching dataset 'unknown'"):
+            response.raise_for_status()
+    assert (
+        "fetching dataset 'unknown': Dataset 'unknown' not found"
+        in str(exc_info.value)
+    )
+
+
+def test_friendly_http_falls_back_to_status_when_no_detail():
+    """Bare ``HTTP <status>`` when the response body has no ``detail`` field."""
+    import click
+
+    response = httpx.Response(
+        503,
+        text="bad gateway html or whatever",
+        request=httpx.Request("GET", "https://example.com/x"),
+    )
+    with pytest.raises(click.ClickException) as exc_info:
+        with friendly_http("listing bundles"):
+            response.raise_for_status()
+    assert "listing bundles: HTTP 503" in str(exc_info.value)
+
+
+def test_friendly_http_converts_network_error():
+    """``httpx.RequestError`` (DNS / connection / timeout) → ClickException."""
+    import click
+
+    request = httpx.Request("GET", "https://example.com/x")
+    with pytest.raises(click.ClickException) as exc_info:
+        with friendly_http("listing bundles"):
+            raise httpx.ConnectError("Could not connect", request=request)
+    assert "Network error listing bundles" in str(exc_info.value)
+    assert "Could not connect" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Integration: actual CLI invocations route through the wrapper end-to-end
+# ---------------------------------------------------------------------------
+
+
+def test_datasets_info_404_renders_friendly_error(respx_mock, cli_runner):
+    """``verlet datasets info <bad-slug>`` should not surface a traceback."""
+    respx_mock.get(
+        "https://api.verlet.co/api/platform/v1/catalog/datasets/bad-slug"
+    ).mock(
+        return_value=httpx.Response(
+            404, json={"detail": "Dataset 'bad-slug' not found"}
+        )
+    )
+    result = cli_runner.invoke(cli, ["datasets", "info", "bad-slug"])
+    assert result.exit_code == 1, (result.output, result.exception)
+    assert "Traceback" not in result.output
+    assert "fetching dataset 'bad-slug'" in result.output
+    assert "Dataset 'bad-slug' not found" in result.output
+
+
+def test_bundles_browse_500_renders_friendly_error(respx_mock, cli_runner):
+    """``verlet bundles browse`` on 500 → friendly error, no traceback."""
+    respx_mock.get(
+        "https://api.verlet.co/api/platform/v1/catalog/research-bundles"
+    ).mock(
+        return_value=httpx.Response(
+            500, json={"detail": "internal server error"}
+        )
+    )
+    result = cli_runner.invoke(cli, ["bundles", "browse"])
+    assert result.exit_code == 1, (result.output, result.exception)
+    assert "Traceback" not in result.output
+    assert "browsing public bundles" in result.output
+    assert "internal server error" in result.output

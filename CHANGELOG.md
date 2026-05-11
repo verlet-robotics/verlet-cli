@@ -5,6 +5,45 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.4] — 2026-05-11
+
+UX fix. No new functionality. Continuation of the 0.8.3 traceback
+cleanup.
+
+### Fixed
+
+- **API helpers no longer surface ``httpx.HTTPStatusError`` tracebacks
+  on 4xx/5xx responses.** ``verlet datasets info <nonexistent-slug>``,
+  ``verlet datasets list`` against a misconfigured API, ``verlet
+  bundles browse`` during a server outage, etc. previously emitted a
+  30-line Python stack ending in
+  ``httpx.HTTPStatusError: Client error '404 Not Found' …``. Now they
+  print ``Error: fetching dataset 'foo': Dataset 'foo' not found.``
+  (or whatever the server's ``{"detail": …}`` envelope contains) on
+  stderr and exit 1.
+
+  Implementation: new ``verlet._http_errors.friendly_http(context)``
+  context manager — promotes the in-module ``_raise_http`` pattern
+  that has lived in ``verlet.ego.catalog`` since the start to a shared
+  utility, and applies it across every call site in
+  ``verlet.datasets._api`` (5 sites: catalog list/detail, arm manifest,
+  conversion-job poll, ego manifest) and ``verlet.bundles._api``
+  (3 sites: browse, list, detail). The wrapper also catches
+  ``httpx.RequestError`` (DNS / TLS / connection refused / timeouts)
+  and renders them as ``Error: Network error <context>: <reason>``.
+
+### Still not covered
+
+- ``verlet.auth.login`` (device-flow polling), ``verlet.auth.tokens``
+  (PAT create/revoke), ``verlet.datasets.convert`` and
+  ``verlet.datasets.push`` (long-running conversion / push polling),
+  and ``verlet.download`` (asset download) each have a few bare
+  ``raise_for_status()`` calls left. They sit in flows where the user
+  is mid-workflow and would typically benefit from richer per-stage
+  error messages — applying the generic wrapper there would be a
+  regression in UX detail. Tackled in a future release if real
+  reports come in.
+
 ## [0.8.3] — 2026-05-11
 
 UX fix. No new functionality.

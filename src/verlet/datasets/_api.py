@@ -38,6 +38,7 @@ from typing import Any
 
 import httpx
 
+from verlet._http_errors import friendly_http
 from verlet.api_client import DEFAULT_API_URL, AuthenticatedClient
 from verlet.auth.credentials import get_profile
 from verlet.auth.profiles import resolve_profile_name
@@ -139,12 +140,13 @@ async def fetch_catalog_list(
 ) -> dict:
     """Anonymous-OK list fetch — anonymous callers omit the Bearer header."""
     api_url, headers = _api_url_and_headers(profile_name)
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(
-            f"{api_url}{CATALOG_LIST_PATH}", params=params, headers=headers
-        )
-        resp.raise_for_status()
-        return resp.json()
+    with friendly_http("listing datasets"):
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{api_url}{CATALOG_LIST_PATH}", params=params, headers=headers
+            )
+            resp.raise_for_status()
+            return resp.json()
 
 
 async def fetch_catalog_detail(
@@ -153,10 +155,11 @@ async def fetch_catalog_detail(
     """Anonymous-OK detail fetch — slug-primary with full-UUID fallback."""
     api_url, headers = _api_url_and_headers(profile_name)
     path = CATALOG_DETAIL_PATH.format(slug_or_id=slug_or_id)
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(f"{api_url}{path}", headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+    with friendly_http(f"fetching dataset '{slug_or_id}'"):
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(f"{api_url}{path}", headers=headers)
+            resp.raise_for_status()
+            return resp.json()
 
 
 async def fetch_arm_manifest(
@@ -185,14 +188,15 @@ async def fetch_arm_manifest(
         params: dict[str, Any] = {"format": format}
         if episode_ids:
             params["episode_ids"] = episode_ids
-        resp = client.request(
-            "GET", ARM_MANIFEST_PATH.format(slug=slug), params=params
-        )
-        # Tolerate both 200 (native) and 202 (conversion enqueued); any other
-        # status raises so the caller sees the wire-level error verbatim.
-        if resp.status_code not in (200, 202):
-            resp.raise_for_status()
-        return (resp.status_code, resp.json())
+        with friendly_http(f"fetching manifest for dataset '{slug}'"):
+            resp = client.request(
+                "GET", ARM_MANIFEST_PATH.format(slug=slug), params=params
+            )
+            # Tolerate both 200 (native) and 202 (conversion enqueued); any
+            # other status raises so the caller sees the wire-level error.
+            if resp.status_code not in (200, 202):
+                resp.raise_for_status()
+            return (resp.status_code, resp.json())
     finally:
         client.close()
 
@@ -206,11 +210,12 @@ async def fetch_job_poll(profile_name: str, job_id: str) -> dict:
     """
     client = AuthenticatedClient(profile_name)
     try:
-        resp = client.request(
-            "GET", f"/api/platform/v1/downloads/jobs/{job_id}"
-        )
-        resp.raise_for_status()
-        return resp.json()
+        with friendly_http(f"polling conversion job {job_id}"):
+            resp = client.request(
+                "GET", f"/api/platform/v1/downloads/jobs/{job_id}"
+            )
+            resp.raise_for_status()
+            return resp.json()
     finally:
         client.close()
 
@@ -231,10 +236,11 @@ async def fetch_ego_manifest(
             params["episode_ids"] = episode_ids
         if segment_ids:
             params["segment_ids"] = segment_ids
-        resp = client.request(
-            "GET", EGO_MANIFEST_PATH.format(slug=slug), params=params
-        )
-        resp.raise_for_status()
-        return resp.json()
+        with friendly_http(f"fetching ego manifest for dataset '{slug}'"):
+            resp = client.request(
+                "GET", EGO_MANIFEST_PATH.format(slug=slug), params=params
+            )
+            resp.raise_for_status()
+            return resp.json()
     finally:
         client.close()

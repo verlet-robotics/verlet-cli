@@ -23,6 +23,8 @@ import httpx
 
 from typing import TYPE_CHECKING
 
+from verlet._http_errors import friendly_http
+
 if TYPE_CHECKING:
     from verlet.api_client import AuthenticatedClient
 
@@ -40,15 +42,16 @@ async def fetch_bundles_browse(*, limit: int = 50) -> dict[str, Any]:
     """
     from verlet.telemetry import current_user_agent
 
-    async with httpx.AsyncClient(
-        timeout=30.0, headers={"User-Agent": current_user_agent()}
-    ) as client:
-        resp = await client.get(
-            f"{DEFAULT_BASE}{CATALOG_RESEARCH_BUNDLES_PATH}",
-            params={"limit": limit},
-        )
-        resp.raise_for_status()
-        return resp.json()
+    with friendly_http("browsing public bundles"):
+        async with httpx.AsyncClient(
+            timeout=30.0, headers={"User-Agent": current_user_agent()}
+        ) as client:
+            resp = await client.get(
+                f"{DEFAULT_BASE}{CATALOG_RESEARCH_BUNDLES_PATH}",
+                params={"limit": limit},
+            )
+            resp.raise_for_status()
+            return resp.json()
 
 REDEEM_PATH = "/api/platform/v1/bundles/redeem"
 
@@ -166,11 +169,12 @@ async def fetch_bundles_list(
     exit 1; everything else falls through ``raise_for_status``.
     """
     params = {"include_inactive": "true"} if include_inactive else None
-    resp = client.get(BUNDLES_LIST_PATH, params=params)
-    if resp.status_code == 401:
-        _exit_with_stderr(NOT_AUTHENTICATED_MSG)
-    resp.raise_for_status()
-    return resp.json()
+    with friendly_http("listing bundles"):
+        resp = client.get(BUNDLES_LIST_PATH, params=params)
+        if resp.status_code == 401:
+            _exit_with_stderr(NOT_AUTHENTICATED_MSG)
+        resp.raise_for_status()
+        return resp.json()
 
 
 async def fetch_bundle_detail(
@@ -183,10 +187,11 @@ async def fetch_bundle_detail(
     avoid bundle-id enumeration cross-namespace).
     """
     path = BUNDLE_DETAIL_PATH.format(bundle_id=bundle_id)
-    resp = client.get(path)
-    if resp.status_code == 401:
-        _exit_with_stderr(NOT_AUTHENTICATED_MSG)
-    if resp.status_code == 404:
-        _exit_with_stderr(BUNDLE_NOT_FOUND_MSG)
-    resp.raise_for_status()
-    return resp.json()
+    with friendly_http(f"fetching bundle '{bundle_id}'"):
+        resp = client.get(path)
+        if resp.status_code == 401:
+            _exit_with_stderr(NOT_AUTHENTICATED_MSG)
+        if resp.status_code == 404:
+            _exit_with_stderr(BUNDLE_NOT_FOUND_MSG)
+        resp.raise_for_status()
+        return resp.json()
