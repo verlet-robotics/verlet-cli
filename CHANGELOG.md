@@ -5,6 +5,35 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.5] — 2026-05-11
+
+Internal cleanup. No user-visible behavior change.
+
+### Changed
+
+- **`verlet.ego.catalog` now uses the shared
+  `verlet._http_errors.friendly_http` context manager** introduced in
+  0.8.4 (and removes its in-module `_raise_http` helper). The three
+  ego API helpers — `fetch_ego_catalog`, `presign_ego_asset`,
+  `fetch_training_bundle` — go from a try / `except
+  httpx.HTTPStatusError` / `except httpx.RequestError` triad each to
+  a single `with friendly_http(...)` block, deleting ~12 lines of
+  duplicated error handling. End-user error output for `verlet ego
+  list` / `verlet ego info` / `verlet ego download` is functionally
+  identical (same render path), just sourced from the shared helper.
+  Tone aligned to the rest of the CLI: ``Error: fetching ego
+  catalog: <detail>`` (was ``Error: Failed to fetch ego catalog:
+  <detail>``).
+
+### Verified
+
+- Cuts a real release tag specifically to exercise the
+  `livecheck: true` change in `release.yml` (verlet-cli@c430d45). If
+  brew-bump opens a PR against `verlet-robotics/homebrew-verlet` this
+  time, the auto-update flow is fixed for good. If it still fails on
+  the same `--uploaded-prior-to` issue, the fallback plan is a
+  hand-rolled bump workflow (Option B per the working notes).
+
 ## [0.8.4] — 2026-05-11
 
 UX fix. No new functionality. Continuation of the 0.8.3 traceback

@@ -156,6 +156,14 @@ jobs:
           revision: ${{ github.sha }}
           force: false
           livecheck: true
+          # Document-of-intent: the action's earlier runs logged this as an
+          # "unexpected input" because the action's default IS to open a PR
+          # (no direct push). Leaving the explicit declaration keeps the
+          # CONTEXT.md D-DIST3 invariant visible in the workflow file and
+          # asserted by tests/test_release_workflow.py — if the action ever
+          # adds a `direct_push: true` knob, we'll want to be explicit that
+          # we don't take it.
+          create_pullrequest: true
 
   # Recipe-CI matrix (Plan 30-13 Task 5, CLIDIST-07, D-DIST4 quality gate;
   # Phase 35 D-RECIPE2 pivoted the walker root from frontend/docs/content/cli

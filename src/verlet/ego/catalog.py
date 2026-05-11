@@ -2,6 +2,7 @@
 import click
 import httpx
 
+from verlet._http_errors import friendly_http
 from verlet.api_client import AuthenticatedClient, auth_headers_for_profile
 from verlet.auth.profiles import ProfileNotFoundError
 
@@ -45,24 +46,13 @@ def _api_url() -> str:
         )
 
 
-def _raise_http(exc: httpx.HTTPStatusError, context: str) -> None:
-    detail = f"HTTP {exc.response.status_code}"
-    try:
-        body = exc.response.json()
-        if isinstance(body, dict) and body.get("detail"):
-            detail = body["detail"]
-    except Exception:
-        pass
-    raise click.ClickException(f"{context}: {detail}")
-
-
 async def fetch_ego_catalog(category: str | None = None) -> dict:
     url = f"{_api_url()}{SHOWCASE_PREFIX}/catalog"
     params = {}
     if category:
         params["category"] = category
 
-    try:
+    with friendly_http("fetching ego catalog"):
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 url,
@@ -71,15 +61,11 @@ async def fetch_ego_catalog(category: str | None = None) -> dict:
             )
             resp.raise_for_status()
             return resp.json()
-    except httpx.HTTPStatusError as e:
-        _raise_http(e, "Failed to fetch ego catalog")
-    except httpx.RequestError as e:
-        raise click.ClickException(f"Network error fetching ego catalog: {e}")
 
 
 async def presign_ego_asset(segment_id: str, asset: str = "overlay") -> str:
     url = f"{_api_url()}{SHOWCASE_PREFIX}/segments/{segment_id}/presign"
-    try:
+    with friendly_http(f"presigning {asset} for segment {segment_id[:8]}"):
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 url,
@@ -88,10 +74,6 @@ async def presign_ego_asset(segment_id: str, asset: str = "overlay") -> str:
             )
             resp.raise_for_status()
             return resp.json()["url"]
-    except httpx.HTTPStatusError as e:
-        _raise_http(e, f"Failed to presign {asset} for segment {segment_id[:8]}")
-    except httpx.RequestError as e:
-        raise click.ClickException(f"Network error presigning asset: {e}")
 
 
 async def fetch_training_bundle(
@@ -107,13 +89,7 @@ async def fetch_training_bundle(
     url = (
         f"{_api_url()}{SHOWCASE_PREFIX}/segments/{segment_id}/training-bundle"
     )
-    try:
+    with friendly_http(f"fetching training bundle for {segment_id[:8]}"):
         resp = await client.get(url, headers=_auth_headers(), timeout=30.0)
         resp.raise_for_status()
         return resp.json()
-    except httpx.HTTPStatusError as e:
-        _raise_http(e, f"Failed to fetch training bundle for {segment_id[:8]}")
-    except httpx.RequestError as e:
-        raise click.ClickException(
-            f"Network error fetching training bundle for {segment_id[:8]}: {e}"
-        )
