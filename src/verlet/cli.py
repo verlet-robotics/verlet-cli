@@ -146,6 +146,7 @@ from verlet.auth.commands import auth_group  # noqa: E402
 from verlet.bundles import bundles_group  # noqa: E402
 from verlet.datasets import datasets_group  # noqa: E402
 from verlet.ego.commands import ego_group  # noqa: E402
+from verlet.pull import pull_command  # noqa: E402
 from verlet.update import update as update_command  # noqa: E402
 
 cli.add_command(auth_group)
@@ -154,6 +155,7 @@ cli.add_command(config_group)
 cli.add_command(datasets_group)
 cli.add_command(docs_group)
 cli.add_command(ego_group)
+cli.add_command(pull_command)
 cli.add_command(update_command)
 
 
