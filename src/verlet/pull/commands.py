@@ -3,7 +3,7 @@
 Branches on the active profile's ``kind``:
 
   showcase_access_code
-    Hits ``GET /api/v1/ego/showcase/datasets/{slug}/download?variant=&scope=``.
+    Hits ``GET /api/v1/showcase/datasets/{slug}/download?variant=&scope=``.
     The backend gates by ``ego_showcase_access_grant`` rows attached to the
     authed access code. 404 means either the dataset doesn't exist OR the
     caller has no grant for it (the backend deliberately conflates these to
@@ -30,7 +30,7 @@ from verlet.api_client import AuthenticatedClient
 from verlet.auth.profiles import ProfileNotFoundError
 from verlet.download import DownloadPlanItem, download_resolved
 
-SHOWCASE_DOWNLOAD_PATH = "/api/v1/ego/showcase/datasets/{slug}/download"
+SHOWCASE_DOWNLOAD_PATH = "/api/v1/showcase/datasets/{slug}/download"
 PLATFORM_SAMPLES_PATH = "/api/platform/v1/catalog/datasets/{slug}/samples/download"
 
 

@@ -6,7 +6,7 @@ from verlet._http_errors import friendly_http
 from verlet.api_client import AuthenticatedClient, auth_headers_for_profile
 from verlet.auth.profiles import ProfileNotFoundError
 
-SHOWCASE_PREFIX = "/api/v1/ego/showcase"
+SHOWCASE_PREFIX = "/api/v1/showcase"
 
 # Training-bundle assets (video + depth + poses) are the default for
 # `verlet ego download --training`. The legacy types (overlay, rrd, clean,

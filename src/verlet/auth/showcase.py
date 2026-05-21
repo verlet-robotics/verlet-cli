@@ -1,6 +1,6 @@
 """CLIAUTH-COEX — legacy showcase access-code login.
 
-Wraps the live ``POST /api/v1/ego/showcase/auth`` endpoint (NOT under
+Wraps the live ``POST /api/v1/showcase/auth`` endpoint (NOT under
 ``/api/platform/v1``) and persists the issued JWT into the new
 credentials.json schema under ``kind=showcase_access_code``.
 
@@ -9,9 +9,9 @@ Used by:
   * The legacy top-level ``verlet login`` shim in ``cli.py`` (kept working
     through 0.6.x with a stderr deprecation hint, removed in 0.7.0)
 
-Wire format (verified at backend/services/ego/showcase.py:141-170):
+Wire format (verified at backend/services/showcase/routes.py):
 
-  Request:  POST /api/v1/ego/showcase/auth   {"code": "abc123"}
+  Request:  POST /api/v1/showcase/auth   {"code": "abc123"}
   Response: 200  {"token": "<showcase-jwt>", "customer_name": "Acme",
                   "expires_in": 86400}
   Error:    401  {"detail": "Invalid access code"} | {"detail": "Access code expired"}
@@ -33,7 +33,7 @@ import httpx
 
 from .credentials import upsert_profile
 
-SHOWCASE_AUTH_PATH = "/api/v1/ego/showcase/auth"
+SHOWCASE_AUTH_PATH = "/api/v1/showcase/auth"
 SHOWCASE_TTL_SECONDS = 24 * 3600  # Research §1.4 / §7 — server JWT TTL is 24h
 
 

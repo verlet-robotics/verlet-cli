@@ -5,6 +5,20 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.7] — 2026-05-21
+
+Showcase CLI fix.
+
+### Fixed
+
+- **Showcase commands now reach the API.** `verlet auth login --kind
+  showcase`, `verlet ego list` / `info` / `download`, and `verlet pull`
+  all addressed `/api/v1/ego/showcase/*`, but the backend moved the
+  entire showcase surface to its own service at `/api/v1/showcase/*` —
+  so every showcase request returned HTTP 404. Updated the three stale
+  path constants (`auth/showcase.py`, `ego/catalog.py`,
+  `pull/commands.py`) to the new prefix. No flag or behavior changes.
+
 ## [0.8.6] — 2026-05-11
 
 CI fix. No CLI behavior change.
