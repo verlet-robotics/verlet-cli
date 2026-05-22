@@ -25,6 +25,8 @@ import httpx
 from verlet.auth.credentials import upsert_profile
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 BUNDLE_DETAIL_PATH_FMT = "/api/platform/v1/bundles/{bundle_id}"
 ARM_MANIFEST_PATH_FMT = "/api/platform/v1/downloads/{slug}/manifest"
@@ -226,7 +228,7 @@ def test_export_404_unknown_bundle_exits_1(
         cli, ["bundles", "export-manifest", bundle_id, "--out", str(out_path)]
     )
     assert result.exit_code != 0, (result.output, result.stderr)
-    assert "bundle not found" in (result.stderr or ""), result.stderr
+    assert "bundle not found" in combined_output(result)
     # Nothing written on the failure path.
     assert not out_path.exists()
 

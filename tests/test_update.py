@@ -20,6 +20,8 @@ import subprocess
 
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 # ---------------------------------------------------------------------------
 # detect_install_method() unit tests (path-pattern based)
@@ -181,7 +183,7 @@ def test_update_unknown_method_exits_one_with_reinstall_hint(
 
     result = cli_runner.invoke(cli, ["update"])
     assert result.exit_code == 1, (result.output, result.stderr)
-    err = result.stderr or result.output
+    err = combined_output(result)
     assert "Cannot auto-update" in err
     assert "pipx install verlet" in err
     assert "brew install verlet-robotics/verlet/verlet" in err
@@ -233,7 +235,7 @@ def test_update_subprocess_failure_propagates_exit_code(monkeypatch, cli_runner)
 
     result = cli_runner.invoke(cli, ["update"])
     assert result.exit_code == 2, (result.output, result.stderr)
-    err = result.stderr or result.output
+    err = combined_output(result)
     assert "pipx: not authenticated to upgrade" in err
 
 

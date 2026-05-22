@@ -9,6 +9,8 @@ import pytest
 from verlet.auth.credentials import upsert_profile
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 # ---------------------------------------------------------------------------
 # Seed helpers
@@ -68,7 +70,7 @@ def _showcase_manifest(slug: str = "acme-ds-1") -> dict:
 def test_pull_no_profile_errors_with_login_hint(cli_runner, tmp_home):
     result = cli_runner.invoke(cli, ["pull", "any-slug"])
     assert result.exit_code != 0
-    out = (result.stderr or "") + (result.output or "")
+    out = combined_output(result)
     assert "auth login" in out.lower()
 
 
@@ -78,14 +80,14 @@ def test_pull_showcase_profile_hits_showcase_endpoint_dry_run(
     _seed_showcase_profile()
     slug = "acme-ds-1"
     route = respx_mock.get(
-        f"https://api.verlet.co/api/v1/ego/showcase/datasets/{slug}/download",
+        f"https://api.verlet.co/api/v1/showcase/datasets/{slug}/download",
     ).respond(200, json=_showcase_manifest(slug))
 
     result = cli_runner.invoke(
         cli,
         ["pull", slug, "--variant", "processed", "--scope", "samples", "--dry-run"],
     )
-    assert result.exit_code == 0, result.output + (result.stderr or "")
+    assert result.exit_code == 0, combined_output(result)
     assert route.called
     # Verify the request carried the showcase bearer header + query params.
     req = route.calls.last.request
@@ -120,14 +122,14 @@ def test_pull_device_flow_routes_to_platform_endpoint(
     ).respond(200, json=manifest)
     # The showcase route MUST NOT be hit for a device-flow profile.
     showcase_route = respx_mock.get(
-        f"https://api.verlet.co/api/v1/ego/showcase/datasets/{slug}/download",
+        f"https://api.verlet.co/api/v1/showcase/datasets/{slug}/download",
     ).respond(200, json=manifest)
 
     result = cli_runner.invoke(
         cli,
         ["pull", slug, "--scope", "samples", "--dry-run"],
     )
-    assert result.exit_code == 0, result.output + (result.stderr or "")
+    assert result.exit_code == 0, combined_output(result)
     assert route.called
     assert not showcase_route.called
 
@@ -136,7 +138,7 @@ def test_pull_device_flow_full_scope_errors_clearly(cli_runner, tmp_home):
     _seed_device_flow_profile()
     result = cli_runner.invoke(cli, ["pull", "x", "--scope", "full"])
     assert result.exit_code != 0
-    out = (result.stderr or "") + (result.output or "")
+    out = combined_output(result)
     # Should point user at platform purchase flow.
     assert "verlet.co/catalog" in out or "samples" in out.lower()
 
@@ -150,12 +152,12 @@ def test_pull_404_renders_no_access_message(cli_runner, respx_mock, tmp_home):
     _seed_showcase_profile()
     slug = "hidden-ds"
     respx_mock.get(
-        f"https://api.verlet.co/api/v1/ego/showcase/datasets/{slug}/download",
+        f"https://api.verlet.co/api/v1/showcase/datasets/{slug}/download",
     ).respond(404, json={"detail": "Dataset not found"})
 
     result = cli_runner.invoke(cli, ["pull", slug, "--dry-run"])
     assert result.exit_code != 0
-    out = (result.stderr or "") + (result.output or "")
+    out = combined_output(result)
     assert "No access" in out
 
 
@@ -163,12 +165,12 @@ def test_pull_429_renders_rate_limit_message(cli_runner, respx_mock, tmp_home):
     _seed_showcase_profile()
     slug = "quota-ds"
     respx_mock.get(
-        f"https://api.verlet.co/api/v1/ego/showcase/datasets/{slug}/download",
+        f"https://api.verlet.co/api/v1/showcase/datasets/{slug}/download",
     ).respond(429, json={"detail": "Episode quota exhausted"})
 
     result = cli_runner.invoke(cli, ["pull", slug, "--dry-run"])
     assert result.exit_code != 0
-    out = (result.stderr or "") + (result.output or "")
+    out = combined_output(result)
     assert "Rate-limited" in out or "quota" in out.lower()
 
 

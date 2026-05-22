@@ -53,10 +53,16 @@ def respx_mock():
 def cli_runner():
     """Click ``CliRunner`` for invoking the CLI in tests.
 
-    Click 8.1.x folds stderr into ``result.output``; Click 8.2+ captures it
-    separately on ``result.stderr`` (and ``result.stderr`` raises
-    ``ValueError`` under 8.1.x). Tests that assert on stderr text should use
-    ``combined_output`` from this module, which tolerates either layout.
+    Uses Click's default stream handling on purpose. Click 8.1.x has an
+    asymmetry under ``mix_stderr=False``: it flushes the captured stdout
+    wrapper but not the stderr one, so plain ``sys.stderr.write()`` output
+    (used throughout the CLI) is silently dropped from ``result.stderr``.
+    The default mixed mode folds both streams into ``result.output`` and
+    flushes correctly, so no CLI output is lost.
+
+    Tests asserting on error text should read it via ``combined_output``,
+    which returns stdout+stderr on every Click version without raising the
+    ``ValueError`` that bare ``result.stderr`` raises under 8.1.x.
     """
     return CliRunner()
 

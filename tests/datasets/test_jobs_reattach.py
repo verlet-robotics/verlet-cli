@@ -21,6 +21,8 @@ import httpx
 
 from verlet.auth.credentials import upsert_profile
 
+from tests.conftest import combined_output
+
 
 def _seed_default_profile() -> None:
     upsert_profile(
@@ -214,7 +216,7 @@ def test_jobs_reattach_failed_prints_error_and_exits_nonzero(
     )
 
     assert result.exit_code != 0, result.output
-    combined = (result.output or "") + (result.stderr or "")
+    combined = combined_output(result)
     # Verbatim D-FORMAT3 message format:
     # "conversion failed: <error_message> (stage: <failed_stage>)"
     assert "conversion failed: ffmpeg returned non-zero" in combined, combined
@@ -260,5 +262,5 @@ def test_jobs_reattach_unknown_id_404(cli_runner, respx_mock, tmp_home):
         cli, ["datasets", "jobs", job_id, "--quiet"],
     )
     assert result.exit_code != 0, result.output
-    combined = (result.output or "") + (result.stderr or "")
+    combined = combined_output(result)
     assert "job not found" in combined.lower(), combined

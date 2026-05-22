@@ -19,6 +19,8 @@ import httpx
 
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 SAMPLE_BUNDLES = {
     "items": [
@@ -110,4 +112,4 @@ def test_browse_500_exits_nonzero_with_stderr(tmp_home, cli_runner, respx_mock):
     result = cli_runner.invoke(cli, ["bundles", "browse"])
     assert result.exit_code != 0, (result.output, result.stderr)
     # Failure surfaces on stderr (not stdout) so JSON consumers don't choke.
-    assert "failed to fetch bundles" in (result.stderr or ""), result.stderr
+    assert "failed to fetch bundles" in combined_output(result)
