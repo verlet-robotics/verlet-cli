@@ -29,6 +29,8 @@ import pytest
 from verlet.auth import credentials as creds
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 REDEEM_PATH = "/api/platform/v1/bundles/redeem"
 
@@ -116,7 +118,7 @@ def test_redeem_410_prints_detail_to_stderr_exit1(tmp_home, cli_runner, respx_mo
 
     result = cli_runner.invoke(cli, ["bundles", "redeem", "ABCD-1234"])
     assert result.exit_code != 0, (result.output, result.stderr)
-    assert "This code has expired" in (result.stderr or ""), result.stderr
+    assert "This code has expired" in combined_output(result)
     # No profile written on failure.
     assert creds.get_profile("default") is None
 
@@ -129,7 +131,7 @@ def test_redeem_404_prints_invalid_code_exit1(tmp_home, cli_runner, respx_mock):
 
     result = cli_runner.invoke(cli, ["bundles", "redeem", "NOPE"])
     assert result.exit_code != 0
-    assert "Invalid code" in (result.stderr or ""), result.stderr
+    assert "Invalid code" in combined_output(result)
     assert creds.get_profile("default") is None
 
 

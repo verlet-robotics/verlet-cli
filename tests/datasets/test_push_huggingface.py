@@ -30,6 +30,8 @@ import pytest
 
 from verlet.auth.credentials import set_hf_token, upsert_profile
 
+from tests.conftest import combined_output
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -252,7 +254,7 @@ def test_push_400_prints_detail_and_exits_nonzero(
         ["datasets", "push", slug, "--to", "huggingface://acme/test"],
     )
     assert result.exit_code != 0
-    combined = (result.output or "") + (result.stderr or "")
+    combined = combined_output(result)
     assert "Only huggingface://" in combined or "push failed" in combined
 
 
@@ -308,7 +310,7 @@ def test_push_no_token_configured_exits_with_verbatim_error(
         ["datasets", "push", "my-slug", "--to", "huggingface://acme/test"],
     )
     assert result.exit_code != 0
-    combined = (result.output or "") + (result.stderr or "")
+    combined = combined_output(result)
     assert NO_HF_TOKEN_MSG in combined, combined
     # Zero HTTP — token gate fires before the network call.
     assert len(respx_mock.calls) == 0

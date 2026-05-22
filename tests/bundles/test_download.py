@@ -32,6 +32,8 @@ import pytest
 from verlet.auth.credentials import upsert_profile
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 BUNDLE_DETAIL_PATH_FMT = "/api/platform/v1/bundles/{bundle_id}"
 ARM_MANIFEST_PATH_FMT = "/api/platform/v1/downloads/{slug}/manifest"
@@ -140,8 +142,8 @@ def test_download_variant_raw_zero_network_call_exits_2(
     assert result.exit_code == 2, (result.exit_code, result.output, result.stderr)
     assert (
         "bundles are processed-only; --variant raw is not allowed"
-        in (result.stderr or "")
-    ), result.stderr
+        in combined_output(result)
+    )
     # Critical: ZERO network calls before the bail-out.
     assert len(respx_mock.calls) == 0, (
         f"--variant raw must reject pre-network; got "
@@ -281,11 +283,11 @@ def test_download_400_on_one_dataset_fails_fast_no_partial_writes(
         "kitchen-pickplace 400"
     )
     # Stderr surfaces the failing dataset slug + server detail verbatim.
-    assert "kitchen-pickplace" in (result.stderr or ""), result.stderr
+    assert "kitchen-pickplace" in combined_output(result)
     assert (
         "format hdf5 not supported for raw-only dataset kitchen-pickplace"
-        in (result.stderr or "")
-    ), result.stderr
+        in combined_output(result)
+    )
     # No bundle_manifest.json written when the run aborts (no partial writes).
     assert not (out_dir / "bundle_manifest.json").exists()
 

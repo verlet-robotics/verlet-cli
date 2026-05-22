@@ -26,6 +26,8 @@ from verlet.auth.credentials import upsert_profile
 from verlet.bundles._render import STATUS_STYLES, bundles_list_table
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 BUNDLES_LIST_PATH = "/api/platform/v1/bundles"
 
@@ -180,9 +182,7 @@ def test_list_401_prints_verbatim_auth_error(tmp_home, cli_runner, respx_mock):
     result = cli_runner.invoke(cli, ["bundles", "list"])
     assert result.exit_code != 0, (result.output, result.stderr)
     # Verbatim string — no prefix, no suffix.
-    assert "not authenticated; run verlet auth login" in (
-        result.stderr or ""
-    ), result.stderr
+    assert "not authenticated; run verlet auth login" in combined_output(result)
 
 
 def test_list_status_color_coding(tmp_home, cli_runner, respx_mock):

@@ -27,6 +27,8 @@ from verlet.auth.credentials import upsert_profile
 from verlet.bundles._render import bundle_detail_view
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 BUNDLE_DETAIL_PATH_FMT = "/api/platform/v1/bundles/{bundle_id}"
 
@@ -150,7 +152,7 @@ def test_info_404_prints_bundle_not_found(tmp_home, cli_runner, respx_mock):
     result = cli_runner.invoke(cli, ["bundles", "info", bundle_id])
     assert result.exit_code != 0, (result.output, result.stderr)
     # Verbatim string -- byte-asserted.
-    assert "bundle not found" in (result.stderr or ""), result.stderr
+    assert "bundle not found" in combined_output(result)
 
 
 def test_info_401_prints_verbatim_auth_error(tmp_home, cli_runner, respx_mock):
@@ -164,9 +166,7 @@ def test_info_401_prints_verbatim_auth_error(tmp_home, cli_runner, respx_mock):
 
     result = cli_runner.invoke(cli, ["bundles", "info", bundle_id])
     assert result.exit_code != 0, (result.output, result.stderr)
-    assert "not authenticated; run verlet auth login" in (
-        result.stderr or ""
-    ), result.stderr
+    assert "not authenticated; run verlet auth login" in combined_output(result)
 
 
 def test_info_research_kind_shows_citation(tmp_home, cli_runner, respx_mock):

@@ -23,6 +23,8 @@ import pytest
 
 from verlet.auth.credentials import upsert_profile
 
+from tests.conftest import combined_output
+
 
 # ---------------------------------------------------------------------------
 # Task 1: validate_format
@@ -563,7 +565,7 @@ def test_download_format_invalid_rejected_pre_http(
     # click.BadParameter → exit 2.
     assert result.exit_code == 2, result.output
     # The validator's message is part of stderr/output.
-    output = (result.output or "") + (result.stderr or "")
+    output = combined_output(result)
     assert "must be one of" in output, output
 
     # Zero HTTP calls — validator fires before any network work.

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from verlet.auth.credentials import upsert_profile
 
+from tests.conftest import combined_output
+
 
 def _seed_default_profile() -> None:
     upsert_profile(
@@ -108,7 +110,7 @@ def test_detach_without_format_raises_usage_error(
     )
     # Click UsageError → exit 2.
     assert result.exit_code == 2, result.output
-    combined = (result.output or "") + (result.stderr or "")
+    combined = combined_output(result)
     assert "--detach requires --format" in combined, combined
 
     # Zero HTTP — guard fires before any network call.
@@ -162,7 +164,7 @@ def test_detach_with_native_200_response_errors(
     )
     # Should fail (not exit 0).
     assert result.exit_code != 0, result.output
-    combined = (result.output or "") + (result.stderr or "")
+    combined = combined_output(result)
     assert "no conversion job to detach from" in combined, combined
 
 
