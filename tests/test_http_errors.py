@@ -90,8 +90,12 @@ def test_friendly_http_converts_network_error():
 # ---------------------------------------------------------------------------
 
 
-def test_datasets_info_404_renders_friendly_error(respx_mock, cli_runner):
-    """``verlet datasets info <bad-slug>`` should not surface a traceback."""
+def test_datasets_info_404_renders_friendly_error(respx_mock, cli_runner, tmp_home):
+    """``verlet datasets info <bad-slug>`` should not surface a traceback.
+
+    ``tmp_home`` isolates ``~/.verlet`` so no real credential is picked up —
+    with no profile the command takes the anonymous platform-catalog path.
+    """
     respx_mock.get(
         "https://api.verlet.co/api/platform/v1/catalog/datasets/bad-slug"
     ).mock(

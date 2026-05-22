@@ -141,11 +141,38 @@ from verlet.docs_export import docs_export  # noqa: E402
 docs_group.add_command(docs_export)
 
 
+# ---------------------------------------------------------------------------
+# `verlet ego` — REMOVED. The ego command group was retired when the showcase
+# CLI was reconciled with the grant system: ego data is now served through
+# `verlet datasets`, which routes showcase access codes to the gated
+# `/api/v1/showcase/datasets/*` endpoints. A hidden stub stays registered so
+# scripted `verlet ego …` calls fail loudly with a migration hint instead of
+# a bare "No such command". Drop in a future release.
+# ---------------------------------------------------------------------------
+
+
+@cli.command(
+    "ego",
+    hidden=True,
+    context_settings={"ignore_unknown_options": True},
+)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def ego_removed(args: tuple[str, ...]) -> None:
+    """REMOVED — use `verlet datasets` instead."""
+    raise click.ClickException(
+        "`verlet ego` was removed. Ego data is now served through "
+        "`verlet datasets`:\n"
+        "  verlet ego list       ->  verlet datasets list\n"
+        "  verlet ego info ID    ->  verlet datasets info <slug>\n"
+        "  verlet ego download   ->  verlet datasets download <slug>\n"
+        "Downloads are now per-dataset (by slug), not per-segment."
+    )
+
+
 # Register subcommand groups
 from verlet.auth.commands import auth_group  # noqa: E402
 from verlet.bundles import bundles_group  # noqa: E402
 from verlet.datasets import datasets_group  # noqa: E402
-from verlet.ego.commands import ego_group  # noqa: E402
 from verlet.pull import pull_command  # noqa: E402
 from verlet.update import update as update_command  # noqa: E402
 
@@ -154,7 +181,6 @@ cli.add_command(bundles_group)
 cli.add_command(config_group)
 cli.add_command(datasets_group)
 cli.add_command(docs_group)
-cli.add_command(ego_group)
 cli.add_command(pull_command)
 cli.add_command(update_command)
 

@@ -54,6 +54,13 @@ CATALOG_DETAIL_PATH = "/api/platform/v1/catalog/datasets/{slug_or_id}"
 ARM_MANIFEST_PATH = "/api/platform/v1/downloads/{slug}/manifest"
 EGO_MANIFEST_PATH = "/api/platform/v1/downloads/ego/datasets/{slug}/manifest"
 
+# Gated showcase endpoints. Showcase access codes (``kind=showcase_access_code``)
+# route to these instead of the platform catalog: every row and every download
+# is filtered against the access code's grants.
+SHOWCASE_LIST_PATH = "/api/v1/showcase/datasets"
+SHOWCASE_DETAIL_PATH = "/api/v1/showcase/datasets/{slug_or_id}"
+SHOWCASE_DOWNLOAD_PATH = "/api/v1/showcase/datasets/{slug_or_id}/download"
+
 
 def _api_url_and_headers(profile_name: str | None) -> tuple[str, dict[str, str]]:
     """Resolve api_url + Authorization header for catalog list/info endpoints.
@@ -244,3 +251,125 @@ async def fetch_ego_manifest(
             return resp.json()
     finally:
         client.close()
+
+
+# ---------------------------------------------------------------------------
+# Credential-kind dispatch — showcase access codes route to the gated
+# ``/api/v1/showcase/datasets/*`` surface instead of the platform catalog.
+# ---------------------------------------------------------------------------
+
+
+def resolve_credential_kind(profile_name: str | None) -> str | None:
+    """Return the active profile's ``kind`` (e.g. ``showcase_access_code``,
+    ``device_flow``, ``pat``), or ``None`` when no profile is configured."""
+    name = resolve_profile_name(profile_name)
+    profile = get_profile(name)
+    return None if profile is None else profile.get("kind")
+
+
+def normalize_showcase_list_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Project a ``/showcase/datasets`` row onto the shape ``_render.py``'s
+    ``dataset_list_table`` expects.
+
+    Sets ``ego_task_dataset_id`` for ego rows so ``is_ego_row`` reports the
+    right modality; the showcase endpoint exposes ``modality`` /
+    ``variants_available`` instead of the platform's discriminator fields.
+    """
+    is_ego = item.get("modality") == "ego"
+    variants = item.get("variants_available") or []
+    return {
+        "slug": item["slug"],
+        "title": item.get("title"),
+        "task_type": item.get("task_type"),
+        "robot_embodiment": item.get("robot_embodiment"),
+        "episode_count": item.get("segment_count")
+        if is_ego and item.get("segment_count") is not None
+        else item.get("episode_count"),
+        "total_hours": item.get("total_hours"),
+        "total_bytes": None,  # not exposed by the showcase endpoint
+        "available_variants": variants,
+        "data_tiers": variants,
+        "ego_task_dataset_id": item["id"] if is_ego else None,
+    }
+
+
+async def fetch_showcase_list(profile_name: str | None) -> dict:
+    """Authenticated. Lists the datasets the showcase access code is granted.
+
+    Returns the raw ``{datasets: [...], total: N}`` body. The showcase
+    endpoint takes no filter params — task/robot filtering is applied
+    client-side by the caller.
+    """
+    client = AuthenticatedClient(profile_name)
+    try:
+        with friendly_http("listing datasets"):
+            resp = client.request("GET", SHOWCASE_LIST_PATH)
+            resp.raise_for_status()
+            return resp.json()
+    finally:
+        client.close()
+
+
+async def fetch_showcase_detail(profile_name: str | None, slug_or_id: str) -> dict:
+    """Authenticated. Showcase dataset detail incl. ``effective_grants``.
+
+    404 means the dataset does not exist OR the access code has no grant for
+    it — the backend conflates these to prevent enumeration.
+    """
+    client = AuthenticatedClient(profile_name)
+    try:
+        path = SHOWCASE_DETAIL_PATH.format(slug_or_id=slug_or_id)
+        with friendly_http(f"fetching dataset '{slug_or_id}'"):
+            resp = client.request("GET", path)
+            if resp.status_code == 404:
+                raise _showcase_not_found(slug_or_id)
+            resp.raise_for_status()
+            return resp.json()
+    finally:
+        client.close()
+
+
+async def fetch_showcase_download(
+    profile_name: str | None,
+    slug: str,
+    *,
+    variant: str | None = None,
+    scope: str = "full",
+) -> dict:
+    """Authenticated. Gated showcase download manifest for one dataset.
+
+    The backend derives variant/scope from the grant; ``variant`` is sent
+    only when explicitly provided so it can select among multiple grants.
+    404 = no grant / no dataset; 429 = quota exhausted or rate-limited.
+    """
+    import click
+
+    client = AuthenticatedClient(profile_name)
+    try:
+        params: dict[str, Any] = {"scope": scope}
+        if variant is not None:
+            params["variant"] = variant
+        path = SHOWCASE_DOWNLOAD_PATH.format(slug_or_id=slug)
+        with friendly_http(f"fetching download manifest for '{slug}'"):
+            resp = client.request("GET", path, params=params)
+            if resp.status_code == 404:
+                raise _showcase_not_found(slug)
+            if resp.status_code == 429:
+                raise click.ClickException(
+                    "Rate-limited or quota exhausted for this grant. "
+                    "Try again later or contact your Verlet rep."
+                )
+            resp.raise_for_status()
+            return resp.json()
+    finally:
+        client.close()
+
+
+def _showcase_not_found(slug: str) -> Exception:
+    import click
+
+    return click.ClickException(
+        f"No access to dataset '{slug}'. Either it does not exist, or your "
+        "access code has no grant for it. Contact your Verlet rep to request "
+        "access."
+    )

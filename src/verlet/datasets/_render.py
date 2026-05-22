@@ -136,6 +136,66 @@ def dataset_info_text(detail: dict[str, Any]) -> tuple[Table, Table]:
     return (meta, bottom)
 
 
+def showcase_info_text(detail: dict[str, Any]) -> tuple[Table, Table]:
+    """Two stacked tables for ``verlet datasets info`` under a showcase code.
+
+    Renders dataset-level metadata + the caller's ``effective_grants`` (what
+    variant/scope/quota the access code is entitled to). Deliberately prints
+    NO per-segment rows — internal segment IDs are never surfaced to showcase
+    clients; only a segment count.
+    """
+    modality = detail.get("modality") or "teleop"
+    meta = Table(
+        title=f"{detail.get('title') or detail['slug']} ({modality})",
+        show_header=False,
+    )
+    meta.add_column("Field", style="bold")
+    meta.add_column("Value")
+    meta.add_row("slug", detail["slug"])
+    meta.add_row("modality", modality)
+    if detail.get("description"):
+        meta.add_row("description", detail["description"])
+    if detail.get("task_type"):
+        meta.add_row("task type", detail["task_type"])
+    if detail.get("robot_embodiment"):
+        meta.add_row("robot", detail["robot_embodiment"])
+    hours_val = detail.get("total_hours")
+    meta.add_row(
+        "hours",
+        f"{hours_val:.1f}h" if isinstance(hours_val, (int, float)) else "—",
+    )
+    if modality == "ego" and detail.get("segment_count") is not None:
+        meta.add_row("segments", str(detail["segment_count"]))
+    else:
+        meta.add_row("episodes", str(detail.get("episode_count") or 0))
+    variants = detail.get("variants_available") or []
+    meta.add_row("variants available", ", ".join(variants) or "—")
+
+    grants = Table(title="Your access (grants)")
+    grants.add_column("Variant")
+    grants.add_column("Scope")
+    grants.add_column("Expires")
+    grants.add_column("Quota remaining")
+    for g in detail.get("effective_grants") or []:
+        quota = g.get("quota_remaining")
+        if quota:
+            qparts = []
+            if quota.get("bytes") is not None:
+                qparts.append(format_bytes(quota["bytes"]))
+            if quota.get("episodes") is not None:
+                qparts.append(f"{quota['episodes']} units")
+            quota_str = ", ".join(qparts) or "unlimited"
+        else:
+            quota_str = "unlimited"
+        grants.add_row(
+            g.get("variant") or "—",
+            g.get("scope") or "—",
+            g.get("expires_at") or "—",
+            quota_str,
+        )
+    return (meta, grants)
+
+
 def dataset_info_json(detail: dict[str, Any]) -> str:
     """Direct CatalogDatasetDetail dump — no client-side reshape (D-CONTEXT)."""
     return json.dumps(detail, indent=2, default=str)

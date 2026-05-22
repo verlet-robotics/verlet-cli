@@ -138,7 +138,7 @@ def test_legacy_login_shim_deprecation_warning(tmp_home, respx_mock, cli_runner)
     that calls into showcase_login(). The deprecation hint goes to stderr; the
     new credentials.json profile is written under kind=showcase_access_code.
     """
-    respx_mock.post("/api/v1/ego/showcase/auth").mock(
+    respx_mock.post("/api/v1/showcase/auth").mock(
         return_value=httpx.Response(
             200, json={"token": "showcase-jwt-XYZ", "customer_name": "Acme"}
         )

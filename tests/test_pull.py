@@ -78,7 +78,7 @@ def test_pull_showcase_profile_hits_showcase_endpoint_dry_run(
     _seed_showcase_profile()
     slug = "acme-ds-1"
     route = respx_mock.get(
-        f"https://api.verlet.co/api/v1/ego/showcase/datasets/{slug}/download",
+        f"https://api.verlet.co/api/v1/showcase/datasets/{slug}/download",
     ).respond(200, json=_showcase_manifest(slug))
 
     result = cli_runner.invoke(
@@ -120,7 +120,7 @@ def test_pull_device_flow_routes_to_platform_endpoint(
     ).respond(200, json=manifest)
     # The showcase route MUST NOT be hit for a device-flow profile.
     showcase_route = respx_mock.get(
-        f"https://api.verlet.co/api/v1/ego/showcase/datasets/{slug}/download",
+        f"https://api.verlet.co/api/v1/showcase/datasets/{slug}/download",
     ).respond(200, json=manifest)
 
     result = cli_runner.invoke(
@@ -150,7 +150,7 @@ def test_pull_404_renders_no_access_message(cli_runner, respx_mock, tmp_home):
     _seed_showcase_profile()
     slug = "hidden-ds"
     respx_mock.get(
-        f"https://api.verlet.co/api/v1/ego/showcase/datasets/{slug}/download",
+        f"https://api.verlet.co/api/v1/showcase/datasets/{slug}/download",
     ).respond(404, json={"detail": "Dataset not found"})
 
     result = cli_runner.invoke(cli, ["pull", slug, "--dry-run"])
@@ -163,7 +163,7 @@ def test_pull_429_renders_rate_limit_message(cli_runner, respx_mock, tmp_home):
     _seed_showcase_profile()
     slug = "quota-ds"
     respx_mock.get(
-        f"https://api.verlet.co/api/v1/ego/showcase/datasets/{slug}/download",
+        f"https://api.verlet.co/api/v1/showcase/datasets/{slug}/download",
     ).respond(429, json={"detail": "Episode quota exhausted"})
 
     result = cli_runner.invoke(cli, ["pull", slug, "--dry-run"])

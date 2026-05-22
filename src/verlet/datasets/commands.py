@@ -31,13 +31,20 @@ from verlet.datasets._api import (
     fetch_catalog_detail,
     fetch_catalog_list,
     fetch_ego_manifest,
+    fetch_showcase_detail,
+    fetch_showcase_download,
+    fetch_showcase_list,
     is_ego_row,
+    normalize_showcase_list_item,
+    resolve_credential_kind,
 )
+from verlet.datasets._manifest import plan_items, print_plan
 from verlet.datasets._render import (
     dataset_info_json,
     dataset_info_text,
     dataset_list_table,
     list_truncation_footer,
+    showcase_info_text,
 )
 from verlet.datasets._validation import (
     validate_download_flags,
@@ -114,19 +121,44 @@ def datasets_list(
     validate_kind_category(kind=kind, category=category)
 
     profile_name = ctx.obj.get("profile") if ctx.obj else None
-    params = build_list_params(
-        task_type=task_type,
-        robot_embodiment=robot_embodiment,
-        category=category,
-        since=since,
-        limit=limit,
-        kind=kind,
-    )
-    body = asyncio.run(fetch_catalog_list(profile_name, params))
-    items = body.get("items") or []
-    total = body.get("total")
-    if total is None:
+
+    # Showcase access codes route to the gated /showcase/datasets catalog,
+    # which lists only the datasets the code is granted. That endpoint takes
+    # no server-side filters: --task / --robot are applied client-side;
+    # --kind / --category have no meaning (no modality discriminator on the
+    # showcase response) and are ignored with a warning.
+    if resolve_credential_kind(profile_name) == "showcase_access_code":
+        if kind != "all" or category:
+            click.echo(
+                "warning: --kind / --category are ignored for showcase "
+                "access codes.",
+                err=True,
+            )
+        body = asyncio.run(fetch_showcase_list(profile_name))
+        items = [
+            normalize_showcase_list_item(x) for x in (body.get("datasets") or [])
+        ]
+        if task_type:
+            items = [i for i in items if i.get("task_type") in task_type]
+        if robot_embodiment:
+            items = [
+                i for i in items if i.get("robot_embodiment") in robot_embodiment
+            ]
         total = len(items)
+    else:
+        params = build_list_params(
+            task_type=task_type,
+            robot_embodiment=robot_embodiment,
+            category=category,
+            since=since,
+            limit=limit,
+            kind=kind,
+        )
+        body = asyncio.run(fetch_catalog_list(profile_name, params))
+        items = body.get("items") or []
+        total = body.get("total")
+        if total is None:
+            total = len(items)
 
     if as_json:
         click.echo(json.dumps(items, indent=2, default=str))
@@ -159,6 +191,21 @@ def datasets_info(ctx: click.Context, slug: str, as_json: bool) -> None:
     restricted-to-namespace rows.
     """
     profile_name = ctx.obj.get("profile") if ctx.obj else None
+
+    # Showcase access codes route to the gated detail endpoint, which 404s
+    # for any dataset the code has no grant for and carries the caller's
+    # effective_grants. The showcase renderer never prints segment IDs.
+    if resolve_credential_kind(profile_name) == "showcase_access_code":
+        detail = asyncio.run(fetch_showcase_detail(profile_name, slug))
+        if as_json:
+            click.echo(dataset_info_json(detail))
+            return
+        meta_table, grants_table = showcase_info_text(detail)
+        console.print(meta_table)
+        console.print()
+        console.print(grants_table)
+        return
+
     detail = asyncio.run(fetch_catalog_detail(profile_name, slug))
 
     if as_json:
@@ -202,13 +249,92 @@ verlet datasets download stanford-cooking-ego --variant processed
 """
 
 
+def _showcase_download(
+    profile_name: str,
+    slug: str,
+    *,
+    variant: str | None,
+    scope: str,
+    output: str,
+    parallel: int,
+    resume: bool,
+    force: bool,
+    dry_run: bool,
+    rejected: dict[str, object],
+) -> None:
+    """Whole-dataset download for a showcase access code.
+
+    The gated ``/showcase/datasets/{slug}/download`` endpoint derives the
+    variant/scope from the access code's grant; per-episode selection and
+    server-side conversion are not part of the showcase surface, so the
+    platform-only flags are rejected with a clear ``UsageError``.
+    """
+    bad = sorted(flag for flag, val in rejected.items() if val)
+    if bad:
+        raise click.UsageError(
+            f"{', '.join(bad)} not supported for showcase access codes; "
+            "showcase downloads are whole-dataset."
+        )
+
+    if not dry_run and not check_license_accepted():
+        if not prompt_license_acceptance():
+            console.print("[dim]Download cancelled.[/dim]")
+            return
+
+    manifest = asyncio.run(
+        fetch_showcase_download(profile_name, slug, variant=variant, scope=scope)
+    )
+    output_root = Path(output) / manifest["dataset_slug"]
+    items = plan_items(manifest["dataset_slug"], Path(output), manifest)
+
+    if dry_run:
+        print_plan(manifest, items)
+        return
+
+    if not items:
+        console.print(
+            f"[dim]No files in manifest for '{slug}' "
+            f"(variant={manifest.get('variant')}, scope={manifest.get('scope')}). "
+            "If you expected samples, the admin may not have configured them "
+            "yet.[/dim]"
+        )
+        return
+
+    result: DownloadResult = asyncio.run(
+        download_resolved(
+            items, parallel=parallel, skip_existing=resume and not force
+        )
+    )
+    if result.downloaded > 0:
+        write_license_file(output_root)
+
+    summary_parts = [f"[green]{result.downloaded}[/green] downloaded"]
+    if result.skipped:
+        summary_parts.append(f"[dim]{result.skipped} skipped[/dim]")
+    if result.failed:
+        summary_parts.append(f"[red]{result.failed} failed[/red]")
+    console.print(f"\n{', '.join(summary_parts)} -> {output_root}")
+    if result.failed > 0:
+        raise SystemExit(1)
+
+
 @datasets_group.command("download", epilog=_DOWNLOAD_EPILOG)
 @click.argument("slug")
 @click.option(
     "--variant",
     type=click.Choice(["raw", "processed"]),
     default=None,
-    help="REQUIRED for ego datasets; rejected for teleop.",
+    help=(
+        "REQUIRED for ego datasets; rejected for teleop. "
+        "For showcase access codes it is optional — the grant decides."
+    ),
+)
+@click.option(
+    "--scope",
+    type=click.Choice(["samples", "full"]),
+    default="full",
+    show_default=True,
+    help="Showcase access codes only: 'samples' = free-sample subset.",
 )
 @click.option(
     "--episode-ids",
@@ -277,6 +403,7 @@ def datasets_download(
     ctx: click.Context,
     slug: str,
     variant: str | None,
+    scope: str,
     episode_ids: str | None,
     segment_ids: str | None,
     output: str,
@@ -302,12 +429,6 @@ def datasets_download(
     is a no-op for native (200) manifests — there is no async job to background,
     so the CLI errors out instead of silently downloading.
     """
-    # 0. --detach requires --format (D-FORMAT1). Foreground native (no --format)
-    # is already synchronous + has no server-side job to background — detaching
-    # is meaningless.
-    if detach and not format:
-        raise click.UsageError("--detach requires --format")
-
     # 1. Auth gate (D-MOD4) — fail fast pre-HTTP. Resolve the profile name from
     # the root --profile flag / VERLET_PROFILE env / credentials.json default,
     # then require_profile() to confirm an entry exists.
@@ -317,8 +438,39 @@ def datasets_download(
         require_profile(profile_name)
     except ProfileNotFoundError:
         raise click.ClickException(
-            "Not authenticated. Run `verlet auth login` to download datasets."
+            "Not authenticated. Run `verlet auth login --kind showcase` with "
+            "your access code, or `verlet auth login` for a platform account."
         )
+
+    # 1a. Showcase access codes: download is whole-dataset, gated by grant.
+    # Route to the gated /showcase/datasets/{slug}/download endpoint and reject
+    # the platform-only flags (server-side conversion + per-episode selection
+    # are not part of the showcase surface).
+    if resolve_credential_kind(profile_name) == "showcase_access_code":
+        _showcase_download(
+            profile_name,
+            slug,
+            variant=variant,
+            scope=scope,
+            output=output,
+            parallel=parallel,
+            resume=resume,
+            force=force,
+            dry_run=dry_run,
+            rejected={
+                "--episode-ids": episode_ids,
+                "--segment-ids": segment_ids,
+                "--format": format,
+                "--detach": detach,
+            },
+        )
+        return
+
+    # 0. --detach requires --format (D-FORMAT1). Foreground native (no --format)
+    # is already synchronous + has no server-side job to background — detaching
+    # is meaningless.
+    if detach and not format:
+        raise click.UsageError("--detach requires --format")
 
     # 2. Resolve catalog row to determine modality (D-MOD2). The same
     # /catalog/datasets/{slug_or_id} endpoint backs `verlet datasets info`.

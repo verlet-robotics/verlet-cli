@@ -5,6 +5,31 @@ All notable changes to the `verlet` CLI are documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Showcase CLI reconciled with the dataset grant system.
+
+### Removed
+
+- **`verlet ego` command group.** Ego data is now served through
+  `verlet datasets list / info / download`. The old `verlet ego`
+  commands called an ungated catalog endpoint that returned every ego
+  segment to any valid access code and exposed internal segment IDs. A
+  hidden stub remains so scripted `verlet ego …` calls fail loudly with
+  a migration hint instead of a bare "No such command".
+
+### Changed
+
+- **`verlet datasets` routes by credential kind.** Showcase access codes
+  (`verlet auth login --kind showcase`) now drive `verlet datasets
+  list / info / download` against the gated `/api/v1/showcase/datasets/*`
+  endpoints — so the CLI shows only the datasets the access code is
+  granted, never internal segment IDs. Platform accounts are unaffected.
+- `verlet datasets download` gained `--scope` (showcase-only:
+  `samples` | `full`). Showcase downloads are whole-dataset; the
+  platform-only flags (`--episode-ids`, `--segment-ids`, `--format`,
+  `--detach`) are rejected for showcase credentials.
+
 ## [0.8.7] — 2026-05-21
 
 Showcase CLI fix.
