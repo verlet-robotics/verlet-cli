@@ -51,13 +51,30 @@ def respx_mock():
 
 @pytest.fixture
 def cli_runner():
-    """Click ``CliRunner`` returning separated stdout / stderr.
+    """Click ``CliRunner`` for invoking the CLI in tests.
 
-    ``CliRunner.__init__`` lost the ``mix_stderr`` kwarg in Click 8.2+
-    (and it stays gone in 9.x); separated stderr is now the default
-    behavior, so tests can assert on ``result.stderr`` directly.
+    Click 8.1.x folds stderr into ``result.output``; Click 8.2+ captures it
+    separately on ``result.stderr`` (and ``result.stderr`` raises
+    ``ValueError`` under 8.1.x). Tests that assert on stderr text should use
+    ``combined_output`` from this module, which tolerates either layout.
     """
     return CliRunner()
+
+
+def combined_output(result) -> str:
+    """Return stdout + stderr regardless of the installed Click version.
+
+    Click 8.1.x folds stderr into ``result.output`` and raises ``ValueError``
+    on ``result.stderr``; Click 8.2+ separates the streams. Reading both
+    defensively keeps assertions stable across either layout.
+    """
+    out = result.output or ""
+    try:
+        err = result.stderr or ""
+    except ValueError:
+        # Click 8.1.x mixed mode — stderr is already inside ``result.output``.
+        err = ""
+    return out + err
 
 
 @pytest.fixture

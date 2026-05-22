@@ -13,6 +13,8 @@ import httpx
 from verlet.auth import credentials as creds
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 def _far_future_iso() -> str:
     return (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
@@ -179,14 +181,14 @@ def test_legacy_login_shim_deprecation_warning(tmp_home, respx_mock, cli_runner)
     that calls into showcase_login(). The deprecation hint goes to stderr; the
     new credentials.json profile is written under kind=showcase_access_code.
     """
-    respx_mock.post("/api/v1/ego/showcase/auth").mock(
+    respx_mock.post("/api/v1/showcase/auth").mock(
         return_value=httpx.Response(
             200, json={"token": "showcase-jwt-XYZ", "customer_name": "Acme"}
         )
     )
     result = cli_runner.invoke(cli, ["login"], input="my-access-code\n")
     # Deprecation hint goes to stderr.
-    combined = (result.output or "") + (getattr(result, "stderr", "") or "")
+    combined = combined_output(result)
     assert "DEPRECATED" in combined
     assert "verlet auth login --kind showcase" in combined
     # Profile written.

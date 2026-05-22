@@ -18,6 +18,8 @@ import httpx
 from verlet.auth import credentials as creds
 from verlet.cli import cli
 
+from tests.conftest import combined_output
+
 
 def _seed_device_flow_default(tmp_home):
     """Seed a logged-in device_flow profile so AuthenticatedClient works."""
@@ -173,9 +175,9 @@ def test_invalid_scope_rejected(tmp_home, cli_runner):
         ],
     )
     assert result.exit_code != 0
-    # UsageError prints to stderr; concatenate to be robust to Click version
-    # differences in where it lands.
-    combined = (result.output or "") + (getattr(result, "stderr", "") or "")
+    # UsageError prints to stderr; combined_output concatenates stdout+stderr
+    # robustly across Click versions (8.1.x mixes, 8.2+ separates).
+    combined = combined_output(result)
     assert "Invalid scope 'foo'" in combined
     assert "read:catalog" in combined  # all 7 listed
     assert "write:tokens" in combined
