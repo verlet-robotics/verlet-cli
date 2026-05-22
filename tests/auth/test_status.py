@@ -133,22 +133,11 @@ def test_json_output(tmp_home, cli_runner):
     assert parsed["scopes"] == ["read:datasets"]
 
 
-def test_legacy_login_shim_deprecation_warning(tmp_home, respx_mock, cli_runner):
-    """Plan 28-04 task 28-04-02 — legacy `verlet login` is now a deprecation shim
-    that calls into showcase_login(). The deprecation hint goes to stderr; the
-    new credentials.json profile is written under kind=showcase_access_code.
+def test_legacy_login_command_removed(tmp_home, cli_runner):
+    """`verlet login` (legacy showcase shim) was removed in 0.9.0 — use
+    `verlet auth login --kind showcase`. The bare name now resolves to
+    Click's unknown-command error. Guards against accidental re-registration.
     """
-    respx_mock.post("/api/v1/showcase/auth").mock(
-        return_value=httpx.Response(
-            200, json={"token": "showcase-jwt-XYZ", "customer_name": "Acme"}
-        )
-    )
-    result = cli_runner.invoke(cli, ["login"], input="my-access-code\n")
-    # Deprecation hint goes to stderr.
-    combined = (result.output or "") + (getattr(result, "stderr", "") or "")
-    assert "DEPRECATED" in combined
-    assert "verlet auth login --kind showcase" in combined
-    # Profile written.
-    profile = creds.get_profile("default")
-    assert profile is not None
-    assert profile["kind"] == "showcase_access_code"
+    result = cli_runner.invoke(cli, ["login"])
+    assert result.exit_code == 2
+    assert "No such command" in result.output

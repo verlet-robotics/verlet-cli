@@ -1,9 +1,8 @@
 """Shared download-manifest parsing for showcase access-code downloads.
 
-Both ``verlet datasets download`` (showcase-credential path) and the
-deprecated ``verlet pull`` consume the gated showcase download manifest
-from ``GET /api/v1/showcase/datasets/{slug}/download``. The backend serves
-two shapes discriminated by ``modality``:
+``verlet datasets download`` (showcase-credential path) consumes the gated
+showcase download manifest from ``GET /api/v1/showcase/datasets/{slug}/download``.
+The backend serves two shapes discriminated by ``modality``:
 
   * ``teleop`` — ``episodes[]`` each with ``parquet_url`` / ``video_urls`` /
     ``meta_urls`` (lerobot-v2 layout).

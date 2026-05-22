@@ -48,8 +48,7 @@ def docs_export(out: Path) -> None:
 
 def _export_group(grp: click.Group, path: list[str], out_dir: Path) -> None:
     for name, cmd in sorted(grp.commands.items()):
-        # Hidden commands (deprecated shims like `ego` / `pull`) stay out of
-        # the published docs tree.
+        # Hidden commands stay out of the published docs tree.
         if getattr(cmd, "hidden", False):
             continue
         if isinstance(cmd, click.Group):

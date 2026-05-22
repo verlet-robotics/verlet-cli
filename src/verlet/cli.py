@@ -36,41 +36,6 @@ def cli(ctx: click.Context, profile: str | None) -> None:
         sys.stderr.write(f"warning: legacy migration skipped: {exc}\n")
 
 
-@cli.command(
-    "login",
-    help="DEPRECATED: use `verlet auth login --kind showcase`.",
-)
-@click.option("--api-url", default=None, help="Override API URL")
-@click.pass_context
-def legacy_login(ctx: click.Context, api_url: str | None) -> None:
-    """Legacy showcase access-code login — deprecation shim into showcase_login.
-
-    Removed in 0.7.0 per Research §13.4. The shim prints a one-line stderr
-    deprecation hint and routes the call into the same showcase_login()
-    helper that ``verlet auth login --kind showcase`` uses, so 0.5.x users
-    keep working without code changes.
-    """
-    import sys
-
-    from verlet.auth.credentials import load_credentials
-    from verlet.auth.profiles import resolve_profile_name
-    from verlet.auth.showcase import showcase_login
-
-    sys.stderr.write(
-        "DEPRECATED: `verlet login` will be removed in 0.7.0. "
-        "Use `verlet auth login --kind showcase` instead.\n"
-    )
-
-    profile_name = resolve_profile_name(ctx.obj.get("profile"))
-    # Resolve api_url: flag wins, else active profile's api_url, else default.
-    doc = load_credentials()
-    existing = doc["profiles"].get(profile_name, {})
-    resolved_api_url = (
-        api_url or existing.get("api_url") or "https://api.verlet.co"
-    )
-    showcase_login(api_url=resolved_api_url, profile_name=profile_name)
-
-
 # ---------------------------------------------------------------------------
 # verlet config telemetry status|enable|disable — CLIDIST-05 / D-DIST1.
 #
@@ -141,39 +106,10 @@ from verlet.docs_export import docs_export  # noqa: E402
 docs_group.add_command(docs_export)
 
 
-# ---------------------------------------------------------------------------
-# `verlet ego` — REMOVED. The ego command group was retired when the showcase
-# CLI was reconciled with the grant system: ego data is now served through
-# `verlet datasets`, which routes showcase access codes to the gated
-# `/api/v1/showcase/datasets/*` endpoints. A hidden stub stays registered so
-# scripted `verlet ego …` calls fail loudly with a migration hint instead of
-# a bare "No such command". Drop in a future release.
-# ---------------------------------------------------------------------------
-
-
-@cli.command(
-    "ego",
-    hidden=True,
-    context_settings={"ignore_unknown_options": True},
-)
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-def ego_removed(args: tuple[str, ...]) -> None:
-    """REMOVED — use `verlet datasets` instead."""
-    raise click.ClickException(
-        "`verlet ego` was removed. Ego data is now served through "
-        "`verlet datasets`:\n"
-        "  verlet ego list       ->  verlet datasets list\n"
-        "  verlet ego info ID    ->  verlet datasets info <slug>\n"
-        "  verlet ego download   ->  verlet datasets download <slug>\n"
-        "Downloads are now per-dataset (by slug), not per-segment."
-    )
-
-
 # Register subcommand groups
 from verlet.auth.commands import auth_group  # noqa: E402
 from verlet.bundles import bundles_group  # noqa: E402
 from verlet.datasets import datasets_group  # noqa: E402
-from verlet.pull import pull_command  # noqa: E402
 from verlet.update import update as update_command  # noqa: E402
 
 cli.add_command(auth_group)
@@ -181,7 +117,6 @@ cli.add_command(bundles_group)
 cli.add_command(config_group)
 cli.add_command(datasets_group)
 cli.add_command(docs_group)
-cli.add_command(pull_command)
 cli.add_command(update_command)
 
 

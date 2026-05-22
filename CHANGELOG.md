@@ -7,16 +7,25 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Showcase CLI reconciled with the dataset grant system.
+## [0.9.0] — 2026-05-22
+
+Showcase CLI reconciled with the dataset grant system; deprecated command
+surface retired.
 
 ### Removed
 
 - **`verlet ego` command group.** Ego data is now served through
   `verlet datasets list / info / download`. The old `verlet ego`
   commands called an ungated catalog endpoint that returned every ego
-  segment to any valid access code and exposed internal segment IDs. A
-  hidden stub remains so scripted `verlet ego …` calls fail loudly with
-  a migration hint instead of a bare "No such command".
+  segment to any valid access code and exposed internal segment IDs.
+  The hidden migration-hint stub has also been removed — `verlet ego …`
+  now resolves to the standard "No such command" error.
+- **`verlet pull`.** Use `verlet datasets download <slug>` — it routes by
+  credential kind to the same gated endpoints. `pull` was a hidden,
+  deprecation-warned shim for several releases.
+- **`verlet login`** (legacy top-level showcase access-code login). Use
+  `verlet auth login --kind showcase`. Hidden and deprecation-warned for
+  several releases prior to removal.
 
 ### Changed
 

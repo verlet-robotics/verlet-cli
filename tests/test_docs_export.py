@@ -28,9 +28,8 @@ def _run_export(tmp_path: Path) -> Path:
 def _count_commands(grp) -> int:
     """Count leaf Click commands recursively under ``grp``.
 
-    Excludes groups themselves and hidden commands (deprecated shims like
-    ``ego`` / ``pull``) — the walker skips hidden commands, so the file
-    count must too.
+    Excludes groups themselves and hidden commands — the walker skips
+    hidden commands, so the file count must too.
     """
     import click
 

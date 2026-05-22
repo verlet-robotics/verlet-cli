@@ -182,9 +182,11 @@ def test_download_showcase_hits_gated_download_endpoint(
 
 
 def test_ego_command_removed(cli_runner, tmp_home):
-    """`verlet ego …` exits non-zero with a migration hint."""
+    """`verlet ego …` was fully removed in 0.9.0 (the migration-hint stub is
+    gone too) — the bare name now resolves to Click's unknown-command error.
+    """
     from verlet.cli import cli
 
     result = cli_runner.invoke(cli, ["ego", "list"])
-    assert result.exit_code != 0
-    assert "verlet datasets" in result.output
+    assert result.exit_code == 2
+    assert "No such command" in result.output
