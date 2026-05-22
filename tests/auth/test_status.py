@@ -110,6 +110,47 @@ def test_showcase_status(tmp_home, cli_runner):
     assert "showcase-jwt-XYZ4" not in result.output
 
 
+def test_fresh_showcase_token_not_flagged_expiring(tmp_home, cli_runner):
+    """A freshly-issued showcase token (24h TTL) must NOT read as expiring soon.
+
+    Regression: the near-expiry warning used a fixed 24h threshold, so a
+    showcase code — which lives exactly 24h — was flagged the instant it
+    was activated. The threshold now scales to the token's own lifetime.
+    """
+    now = datetime.now(timezone.utc)
+    creds.upsert_profile(
+        "showcase-fresh",
+        kind="showcase_access_code",
+        api_url="https://api.verlet.co",
+        access_token="showcase-jwt-fresh-XYZ4",
+        customer_name="Acme Robotics",
+        issued_at=now.isoformat(),
+        expires_at=(now + timedelta(hours=24)).isoformat(),
+    )
+    result = cli_runner.invoke(cli, ["--profile", "showcase-fresh", "auth", "status"])
+    assert result.exit_code == 0, result.output
+    assert "Expiring soon" not in result.output
+
+
+def test_near_expiry_showcase_token_flagged(tmp_home, cli_runner):
+    """A showcase token inside its final 10% IS flagged, with the showcase hint."""
+    now = datetime.now(timezone.utc)
+    creds.upsert_profile(
+        "showcase-stale",
+        kind="showcase_access_code",
+        api_url="https://api.verlet.co",
+        access_token="showcase-jwt-stale-XYZ4",
+        customer_name="Acme Robotics",
+        issued_at=(now - timedelta(hours=23)).isoformat(),
+        expires_at=(now + timedelta(hours=1)).isoformat(),
+    )
+    result = cli_runner.invoke(cli, ["--profile", "showcase-stale", "auth", "status"])
+    assert result.exit_code == 0, result.output
+    assert "Expiring soon" in result.output
+    # Kind-aware hint: showcase re-auths with --kind showcase, not plain login.
+    assert "verlet auth login --kind showcase" in result.output
+
+
 def test_json_output(tmp_home, cli_runner):
     creds.upsert_profile(
         "default",

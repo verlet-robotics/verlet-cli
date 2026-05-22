@@ -6,8 +6,9 @@ Three coexisting profile kinds, three slightly different status renderings
   * Bearer tokens are always displayed masked (`first8...last4`); plaintext
     never reaches stdout.
   * Expiry math runs against ``profile["expires_at"]`` parsed as ISO-8601.
-    Within 24h of expiry → yellow near-expiry warning. Past expiry → red
-    EXPIRED line + exit code 1 (so CI scripts can detect).
+    Inside the final 10% of the token's lifetime → yellow near-expiry
+    warning. Past expiry → red EXPIRED line + exit code 1 (so CI scripts
+    can detect).
   * ``--json`` short-circuits text rendering and emits a single JSON object
     with stable keys: profile, kind, api_url, identity, namespace,
     expires_at, expired, expires_in_seconds, scopes, customer_name.
@@ -32,6 +33,16 @@ from .credentials import upsert_profile
 from .profiles import resolve_profile_name, require_profile
 
 ME_PATH = "/api/platform/v1/auth/me"
+
+# Per-kind "how to get a fresh credential" hint for the near-expiry warning.
+# Each kind has a different refresh path (showcase re-auths with --kind
+# showcase, PATs are re-minted, bundle grants re-redeem the code).
+_REFRESH_HINT = {
+    "device_flow": "run `verlet auth login` to refresh.",
+    "pat": "mint a new PAT with `verlet auth tokens create`.",
+    "showcase_access_code": "run `verlet auth login --kind showcase` to refresh.",
+    "bundle_grant": "re-run `verlet bundles redeem <code>` to refresh.",
+}
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -270,10 +281,19 @@ def render_status(
     else:
         click.echo(f"Unknown kind '{kind}'.")
 
-    # Near-expiry tail (within 24h, not yet expired)
-    if expires_in is not None and not expired and expires_in < 24 * 3600:
-        click.secho(
-            "[!] Expiring soon -- run `verlet auth login` to refresh.",
-            fg="yellow",
-        )
+    # Near-expiry tail. A fixed 24h window mis-fires on short-lived tokens:
+    # showcase access codes live exactly 24h, so a freshly-issued one would
+    # always read as "expiring soon". Scale the threshold to the token's own
+    # lifetime (issued_at -> expires_at) and warn only inside its final 10%,
+    # capped at 24h with a 5-minute floor for very short-lived tokens.
+    if expires_in is not None and not expired:
+        issued_at = _parse_iso(profile.get("issued_at"))
+        if issued_at is not None and expires_at is not None:
+            lifetime = (expires_at - issued_at).total_seconds()
+            threshold = min(24 * 3600, max(lifetime * 0.1, 300))
+        else:
+            threshold = 24 * 3600
+        if expires_in < threshold:
+            hint = _REFRESH_HINT.get(kind, _REFRESH_HINT["device_flow"])
+            click.secho(f"[!] Expiring soon -- {hint}", fg="yellow")
     return 1 if expired else 0
