@@ -267,25 +267,40 @@ def library_bundles_table(bundles: list[dict[str, Any]]) -> Table:
     return table
 
 
+def _short_id(value: Any) -> str:
+    """Truncate a UUID to its first 8 chars + ellipsis for compact tables.
+
+    The browse/segment listings cross-reference rows by ``dataset_index``,
+    not UUID — ``--episode-ids`` / ``--segment-ids`` take the integer
+    Index. The full UUID is informational only, so we elide it to keep the
+    other columns readable at 80 cols. Full UUIDs are still in ``--json``.
+    """
+    s = str(value) if value is not None else ""
+    if len(s) <= 12:
+        return s or "—"
+    return f"{s[:8]}…"
+
+
 def episodes_table(items: list[dict[str, Any]]) -> Table:
     """Per-dataset episode listing (G-P7).
 
     The ``Index`` column is the ``dataset_index`` — the integer
     ``verlet datasets download --episode-ids`` expects, so a user can browse
-    here and feed the indices straight into a selective download.
+    here and feed the indices straight into a selective download. ``ID``
+    is shown elided (first 8 chars + ellipsis); the full UUID is in ``--json``.
     """
     table = Table(title="Episodes")
-    table.add_column("Index", justify="right")
+    table.add_column("Index", justify="right", no_wrap=True)
     table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Duration", justify="right")
-    table.add_column("Frames", justify="right")
-    table.add_column("QC")
-    table.add_column("Free sample")
+    table.add_column("Duration", justify="right", no_wrap=True)
+    table.add_column("Frames", justify="right", no_wrap=True)
+    table.add_column("QC", no_wrap=True)
+    table.add_column("Sample", no_wrap=True)
     for ep in items:
         idx = ep.get("dataset_index")
         table.add_row(
             str(idx) if idx is not None else "—",
-            str(ep.get("id") or "—"),
+            _short_id(ep.get("id")),
             format_duration(ep.get("duration_secs") or 0),
             str(ep.get("frame_count") or 0),
             ep.get("qc_status") or "—",
@@ -298,24 +313,26 @@ def segments_table(items: list[dict[str, Any]]) -> Table:
     """Per-dataset segment listing for ego datasets (G-P7).
 
     ``Index`` is the ``dataset_index`` consumed by
-    ``verlet datasets download --segment-ids``.
+    ``verlet datasets download --segment-ids``. ``Name`` is the only
+    free-text column and is allowed to wrap; everything else stays on one
+    line so the row count is predictable. Full UUIDs are in ``--json``.
     """
-    table = Table(title="Segments")
-    table.add_column("Index", justify="right")
+    table = Table(title="Segments", expand=True)
+    table.add_column("Index", justify="right", no_wrap=True)
     table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Name")
-    table.add_column("Duration", justify="right")
-    table.add_column("Category")
-    table.add_column("Hand cov.", justify="right")
-    table.add_column("Depth")
-    table.add_column("Free sample")
+    table.add_column("Name", no_wrap=True, overflow="ellipsis", ratio=1)
+    table.add_column("Duration", justify="right", no_wrap=True)
+    table.add_column("Category", no_wrap=True, overflow="ellipsis", max_width=14)
+    table.add_column("Hand", justify="right", no_wrap=True)
+    table.add_column("Depth", no_wrap=True)
+    table.add_column("Sample", no_wrap=True)
     for s in items:
         idx = s.get("dataset_index")
         cov = s.get("hand_coverage")
         cov_str = f"{cov * 100:.0f}%" if isinstance(cov, (int, float)) else "—"
         table.add_row(
             str(idx) if idx is not None else "—",
-            str(s.get("id") or "—"),
+            _short_id(s.get("id")),
             s.get("name") or "—",
             format_duration(s.get("duration_s") or 0),
             s.get("category") or "—",
