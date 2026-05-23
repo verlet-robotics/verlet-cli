@@ -270,10 +270,39 @@ def render_status(
     else:
         click.echo(f"Unknown kind '{kind}'.")
 
-    # Near-expiry tail (within 24h, not yet expired)
-    if expires_in is not None and not expired and expires_in < 24 * 3600:
-        click.secho(
-            "[!] Expiring soon -- run `verlet auth login` to refresh.",
-            fg="yellow",
-        )
+    # Near-expiry tail. The window has to be kind-aware: showcase JWTs
+    # live 24h and device_flow JWTs live 8h, so a flat "< 24h" warning
+    # fires on the very first ``auth status`` after a fresh login — which
+    # is exactly what the user just did. Per-kind windows keep the
+    # warning honest. The refresh command also comes from the shared
+    # helper so the soon-hint and the EXPIRED-hint stay in lockstep.
+    if expires_in is not None and not expired:
+        from .expiry import refresh_command
+
+        if expires_in < _near_expiry_seconds(kind):
+            click.secho(
+                f"[!] Expiring soon -- run `{refresh_command(profile)}` to refresh.",
+                fg="yellow",
+            )
     return 1 if expired else 0
+
+
+def _near_expiry_seconds(kind: str) -> int:
+    """How much remaining lifetime triggers the 'Expiring soon' warning.
+
+    Per-kind because each token has a different total lifetime — a flat
+    24h window warned showcase users on every fresh login (their JWT TTL
+    *is* 24h). Values are tuned to roughly the last 10% of each token's
+    expected lifetime.
+
+      device_flow         — 8h JWT (api_client.DEVICE_FLOW_ACCESS_TTL_SECONDS)
+                            → warn under 1h
+      showcase_access_code — 24h JWT → warn under 2h
+      pat / bundle_grant  — server-set TTL, often days or weeks
+                            → warn under 24h (long lead time on purpose)
+    """
+    if kind == "device_flow":
+        return 3600         # 1h
+    if kind == "showcase_access_code":
+        return 2 * 3600     # 2h
+    return 24 * 3600        # PAT, bundle_grant, unknown

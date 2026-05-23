@@ -141,3 +141,116 @@ def test_legacy_login_command_removed(tmp_home, cli_runner):
     result = cli_runner.invoke(cli, ["login"])
     assert result.exit_code == 2
     assert "No such command" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Near-expiry warning — Bug spotted hands-on: a flat 24h threshold fired
+# on the first ``auth status`` after a fresh showcase login (their JWT TTL
+# is 24h, so the user IS within 24h from minute one). Fixed by making the
+# threshold kind-aware AND by surfacing the refresh command through the
+# shared ``auth.expiry.refresh_command`` helper so the soon-hint matches
+# the EXPIRED-hint's per-kind command text.
+# ---------------------------------------------------------------------------
+
+
+def _expires_in(seconds: int) -> str:
+    return (
+        datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    ).isoformat()
+
+
+def test_fresh_showcase_token_does_not_show_soon_warning(tmp_home, cli_runner):
+    """A brand-new showcase JWT (24h TTL) must NOT trigger the soon-hint.
+    The threshold for showcase is 2h, well below the 24h fresh-token mark.
+    """
+    creds.upsert_profile(
+        "default",
+        kind="showcase_access_code",
+        api_url="https://api.verlet.co",
+        access_token="sc.jwt.value",
+        expires_at=_expires_in(23 * 3600 + 59 * 60),  # 23h 59m
+        customer_name="Demo",
+    )
+    result = cli_runner.invoke(cli, ["auth", "status"])
+    assert result.exit_code == 0, result.output
+    assert "Expiring soon" not in result.output
+
+
+def test_showcase_token_within_2h_shows_soon_warning_with_kind_flag(
+    tmp_home, cli_runner
+):
+    """Inside the showcase per-kind window (under 2h), the soon-hint must
+    fire AND must say ``--kind showcase`` so a showcase user following the
+    advice doesn't get dumped into the device-flow login by mistake.
+    """
+    creds.upsert_profile(
+        "default",
+        kind="showcase_access_code",
+        api_url="https://api.verlet.co",
+        access_token="sc.jwt.value",
+        expires_at=_expires_in(45 * 60),  # 45 minutes left
+        customer_name="Demo",
+    )
+    result = cli_runner.invoke(cli, ["auth", "status"])
+    assert result.exit_code == 0, result.output
+    assert "Expiring soon" in result.output
+    assert "verlet auth login --kind showcase" in result.output
+
+
+def test_device_flow_within_1h_shows_soon_warning(tmp_home, cli_runner):
+    """device_flow JWTs live 8h; warn under 1h. A fresh 8h token must NOT
+    warn, but one with 30 minutes left must."""
+    creds.upsert_profile(
+        "default",
+        kind="device_flow",
+        api_url="https://api.verlet.co",
+        access_token="df.jwt.value",
+        refresh_token="rt",
+        expires_at=_expires_in(30 * 60),  # 30 minutes left
+    )
+    result = cli_runner.invoke(cli, ["auth", "status"])
+    assert "Expiring soon" in result.output
+    assert "verlet auth login" in result.output
+    # device_flow refresh command must NOT carry --kind showcase.
+    assert "--kind showcase" not in result.output
+
+
+def test_device_flow_within_8h_no_warning_because_just_logged_in(
+    tmp_home, cli_runner
+):
+    """A device_flow token at 4h remaining is fine (mid-lifetime). The
+    flat 24h threshold would have wrongly warned here; the 1h per-kind
+    threshold leaves the user alone."""
+    creds.upsert_profile(
+        "default",
+        kind="device_flow",
+        api_url="https://api.verlet.co",
+        access_token="df.jwt.value",
+        refresh_token="rt",
+        expires_at=_expires_in(4 * 3600),
+    )
+    result = cli_runner.invoke(cli, ["auth", "status"])
+    assert "Expiring soon" not in result.output
+
+
+def test_pat_within_24h_shows_soon_warning_with_tokens_create(
+    tmp_home, cli_runner
+):
+    """PATs use the longer 24h warning window (they can live for weeks).
+    The hint must point at ``auth tokens create`` — minting a new PAT,
+    NOT running interactive login."""
+    creds.upsert_profile(
+        "default",
+        kind="pat",
+        api_url="https://api.verlet.co",
+        access_token="pat_a_b",
+        pat_id="abcd",
+        name="ci-token",
+        scopes=["read:datasets"],
+        last_4="b",
+        created_at="2026-05-07T12:00:00+00:00",
+        expires_at=_expires_in(12 * 3600),  # 12h left
+    )
+    result = cli_runner.invoke(cli, ["auth", "status"])
+    assert "Expiring soon" in result.output
+    assert "verlet auth tokens create" in result.output
