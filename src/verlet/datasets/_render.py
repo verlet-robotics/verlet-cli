@@ -221,6 +221,7 @@ def showcase_info_text(detail: dict[str, Any]) -> tuple[Table, Table]:
     grants.add_column("Quota remaining")
     for g in detail.get("effective_grants") or []:
         quota = g.get("quota_remaining")
+        scope = g.get("scope") or "—"
         if quota:
             qparts = []
             if quota.get("bytes") is not None:
@@ -228,11 +229,17 @@ def showcase_info_text(detail: dict[str, Any]) -> tuple[Table, Table]:
             if quota.get("episodes") is not None:
                 qparts.append(f"{quota['episodes']} units")
             quota_str = ", ".join(qparts) or "unlimited"
+        elif scope == "samples":
+            # Backend always returns quota_remaining=None for samples scope —
+            # they're a free preview and don't decrement the paid budget.
+            # Spell that out instead of "unlimited", which collides with
+            # the meaning we use for truly uncapped full-scope grants.
+            quota_str = "free preview"
         else:
             quota_str = "unlimited"
         grants.add_row(
             g.get("variant") or "—",
-            g.get("scope") or "—",
+            scope,
             g.get("expires_at") or "—",
             quota_str,
         )

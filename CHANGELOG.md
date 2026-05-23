@@ -7,6 +7,22 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.2] — 2026-05-23
+
+A tiny render fix paired with a backend change shipping the same day.
+No breaking changes.
+
+### Fixed
+
+- **Samples-scope grants render as `free preview` instead of `unlimited`.**
+  The grants table in `datasets info <slug>` was showing the same paid
+  quota on every expanded row, including the samples-scope rows — making
+  one 10-unit grant look like 40 units across four buckets. The backend
+  now returns `quota_remaining=null` for samples (samples are an
+  unmetered preview that neither check nor decrement the budget), so the
+  CLI shows `free preview` on those rows and reserves `unlimited` for
+  full-scope grants that really are uncapped.
+
 ## [0.10.1] — 2026-05-23
 
 Usability + reliability follow-ups to 0.10.0, all surfaced by hands-on
