@@ -7,6 +7,56 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-05-23
+
+Usability + reliability follow-ups to 0.10.0, all surfaced by hands-on
+testing of the showcase user journey. No breaking changes.
+
+### Fixed
+
+- **Showcase ego datasets render and download correctly.** The live
+  showcase backend omits the explicit `modality` field on the wire
+  (despite the Pydantic schema declaring it), which caused every ego
+  dataset to be labelled `(teleop)` in `datasets list` / `info`, the
+  segments count to be mis-labelled "episodes", `variants_available`
+  to render as `—` even when grants clearly listed `raw` + `processed`,
+  and `datasets download <ego-slug>` (with no `--variant`) to leak the
+  raw FastAPI 422 list-of-dicts to stderr. A new `resolve_modality`
+  helper now cascades through `modality` → `task_type` →
+  `robot_embodiment` → `ego_task_dataset_id`, the renderer derives
+  `variants_available` from `effective_grants` when missing, and the
+  CLI pre-flight-fetches the detail body before download so it can
+  raise `Error: '<slug>' is an ego dataset — --variant is required.
+  Your grants cover: <list>.` instead of relaying the 422.
+- **Pydantic 422 validation errors no longer leak.** `_format_detail`
+  flattens FastAPI's `[{"loc": [...], "msg": "..."}]` list into
+  `field: msg; field: msg` form across every call site that goes
+  through `friendly_http`, with the source prefix (query/body/path)
+  stripped.
+- **`datasets list` and `datasets info <ego-slug>` are legible at
+  80 cols.** Tables now use Rich's `expand=True` + per-column
+  `no_wrap` / `overflow="ellipsis"` / `ratio` / `max_width`, and
+  empty Size/Variants/Tiers columns get dropped when no row has data
+  — instead of every cell collapsing to `t…` / `C…` / `1…`.
+- **`auth status` reports expiry correctly on fresh tokens.** A
+  24-hour showcase token issued 30 seconds ago no longer shows up as
+  "Expiring soon" — near-expiry thresholds are now per-credential-kind
+  (`device_flow=1h`, `showcase_access_code=2h`, others=24h) and the
+  hint command matches the profile's kind (e.g. `verlet auth login
+  --kind showcase` instead of the device-flow default).
+- **Expired tokens surface a kind-aware hint everywhere.** Every
+  authed surface (`pull`, `push`, `datasets info / download`, etc.)
+  now fails pre-HTTP with `Token expired. Re-authenticate with:
+  verlet auth login --kind <kind>` instead of a bare backend error
+  string. Catalog browse is anonymous-OK and falls back rather than
+  failing on an expired profile.
+- **`destinations add` works for AWS deeplink + manual providers
+  today.** When the backend returns `manual_fields: null` (a known
+  gap), the CLI falls back to a built-in `FALLBACK_FIELDS` table for
+  R2 / S3 / HuggingFace (GCS short-circuits to a `--credentials-json`
+  hint), so the command prompts for what the provider actually needs
+  instead of writing an empty credential blob.
+
 ## [0.10.0] — 2026-05-22
 
 Closes the "I paid, now what" gap and makes datasets inspectable before a
