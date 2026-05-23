@@ -58,7 +58,7 @@ def friendly_http(context: str) -> Iterator[None]:
         try:
             body = exc.response.json()
             if isinstance(body, dict) and body.get("detail"):
-                detail = body["detail"]
+                detail = _format_detail(body["detail"])
         except Exception:
             pass
         raise click.ClickException(f"{context}: {detail}") from exc
@@ -66,3 +66,34 @@ def friendly_http(context: str) -> Iterator[None]:
         raise click.ClickException(
             f"Network error {context}: {exc}"
         ) from exc
+
+
+def _format_detail(detail: object) -> str:
+    """Render a FastAPI ``detail`` field as a readable one-line string.
+
+    A 422 carries ``detail`` as a list of Pydantic validation-error dicts
+    (``{type, loc, msg, input}``) — passing that straight to an f-string
+    leaks the Python repr (``[{'type': 'missing', 'loc': [...]}]``), which
+    is what users were seeing on ``datasets download`` of an ego dataset
+    without ``--variant``. Flatten the list into ``field: msg; …`` form;
+    fall through to ``str(detail)`` for any other shape.
+    """
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, list) and detail:
+        parts = []
+        for entry in detail:
+            if not isinstance(entry, dict):
+                parts.append(str(entry))
+                continue
+            loc = entry.get("loc") or []
+            # ``loc`` is e.g. ["query", "variant"] — the tail is the
+            # field name the user actually controls; the head is the
+            # FastAPI source (query/body/path), which we drop.
+            field = ".".join(str(x) for x in loc[1:]) or (
+                ".".join(str(x) for x in loc) or "?"
+            )
+            msg = entry.get("msg") or entry.get("type") or "invalid"
+            parts.append(f"{field}: {msg}")
+        return "; ".join(parts)
+    return str(detail)

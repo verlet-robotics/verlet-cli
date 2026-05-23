@@ -124,3 +124,97 @@ def test_bundles_browse_500_renders_friendly_error(respx_mock, cli_runner):
     assert "Traceback" not in result.output
     assert "browsing public bundles" in result.output
     assert "internal server error" in result.output
+
+
+# ---------------------------------------------------------------------------
+# _format_detail — FastAPI 422 validation-error list rendering
+# ---------------------------------------------------------------------------
+#
+# Hands-on surfaced this leak: ``verlet datasets download <ego-slug>`` on a
+# showcase profile without ``--variant`` produced
+# ``Error: ... [{'type': 'missing', 'loc': ['query', 'variant'], ...}]`` —
+# the literal Python repr of FastAPI's validation-error list. The wire
+# detail is a list, so the old f-string rendered repr(list). The
+# formatter flattens it into ``field: msg`` form.
+
+
+def test_format_detail_passes_string_through():
+    from verlet._http_errors import _format_detail
+
+    assert _format_detail("Invalid access code.") == "Invalid access code."
+
+
+def test_format_detail_renders_pydantic_validation_list():
+    """A missing-field validation error renders as ``field: msg``, with
+    FastAPI's source prefix (query/body/path) stripped."""
+    from verlet._http_errors import _format_detail
+
+    detail = [
+        {
+            "type": "missing",
+            "loc": ["query", "variant"],
+            "msg": "Field required",
+            "input": None,
+        }
+    ]
+    assert _format_detail(detail) == "variant: Field required"
+
+
+def test_format_detail_joins_multiple_validation_errors():
+    from verlet._http_errors import _format_detail
+
+    detail = [
+        {"type": "missing", "loc": ["query", "variant"], "msg": "Field required"},
+        {"type": "value_error", "loc": ["body", "name"], "msg": "Too short"},
+    ]
+    assert (
+        _format_detail(detail)
+        == "variant: Field required; name: Too short"
+    )
+
+
+def test_format_detail_renders_nested_loc_with_dots():
+    from verlet._http_errors import _format_detail
+
+    detail = [
+        {
+            "type": "missing",
+            "loc": ["body", "credentials", "access_key_id"],
+            "msg": "Field required",
+        }
+    ]
+    assert (
+        _format_detail(detail)
+        == "credentials.access_key_id: Field required"
+    )
+
+
+def test_friendly_http_422_renders_validation_list_inline(respx_mock):
+    """End-to-end through the wrapper: a 422 with a validation-error list
+    body must NOT leak the Python list-of-dicts repr to users."""
+    import click
+
+    response = httpx.Response(
+        422,
+        json={
+            "detail": [
+                {
+                    "type": "missing",
+                    "loc": ["query", "variant"],
+                    "msg": "Field required",
+                    "input": None,
+                }
+            ]
+        },
+        request=httpx.Request("GET", "https://example.com/x"),
+    )
+    with pytest.raises(click.ClickException) as exc_info:
+        with friendly_http("fetching download manifest"):
+            response.raise_for_status()
+    rendered = str(exc_info.value)
+    assert (
+        "fetching download manifest: variant: Field required" in rendered
+    )
+    # The raw repr must not bleed through.
+    assert "{'type'" not in rendered
+    assert "[{'" not in rendered

@@ -17,7 +17,7 @@ from typing import Any
 
 from rich.table import Table
 
-from verlet.datasets._api import is_ego_row
+from verlet.datasets._api import is_ego_row, resolve_modality
 from verlet.display import format_bytes, format_duration
 
 
@@ -27,16 +27,32 @@ def dataset_list_table(items: list[dict[str, Any]]) -> Table:
     The Modality column is always present (D-MOD1 unified catalog). Hours and
     bytes pass through ``format_bytes`` / a fixed-precision float so the table
     aligns under monospace fonts.
+
+    Column-width discipline mirrors the episodes/segments tables: every
+    short column is ``no_wrap=True`` so rows stay single-line; Title is
+    the only flexible column (``ratio=1`` with ``expand=True`` on the
+    Table) and absorbs whatever horizontal room is left. Variants/Tiers
+    are dropped when no row in the result set populates either column —
+    the showcase listing always returns them empty, so a showcase user
+    never sees a wall of "—" cells.
     """
-    table = Table(title="Datasets")
-    table.add_column("Slug", style="cyan", no_wrap=True)
-    table.add_column("Modality")
-    table.add_column("Title")
-    table.add_column("Episodes", justify="right")
-    table.add_column("Hours", justify="right")
-    table.add_column("Size", justify="right")
-    table.add_column("Variants")
-    table.add_column("Tiers")
+    show_variants = any(ds.get("available_variants") for ds in items)
+    show_tiers = any(ds.get("data_tiers") for ds in items)
+    show_bytes = any(ds.get("total_bytes") for ds in items)
+    table = Table(title="Datasets", expand=True)
+    table.add_column(
+        "Slug", style="cyan", no_wrap=True, overflow="ellipsis", max_width=30
+    )
+    table.add_column("Modality", no_wrap=True)
+    table.add_column("Title", no_wrap=True, overflow="ellipsis", ratio=1)
+    table.add_column("Episodes", justify="right", no_wrap=True)
+    table.add_column("Hours", justify="right", no_wrap=True)
+    if show_bytes:
+        table.add_column("Size", justify="right", no_wrap=True)
+    if show_variants:
+        table.add_column("Variants", no_wrap=True, overflow="ellipsis")
+    if show_tiers:
+        table.add_column("Tiers", no_wrap=True, overflow="ellipsis")
     for ds in items:
         modality = "ego" if is_ego_row(ds) else "teleop"
         hours_val = ds.get("total_hours")
@@ -45,16 +61,20 @@ def dataset_list_table(items: list[dict[str, Any]]) -> Table:
             if isinstance(hours_val, (int, float))
             else "—"
         )
-        table.add_row(
+        row = [
             ds["slug"],
             modality,
             ds.get("title") or "—",
             str(ds.get("episode_count") or 0),
             hours_str,
-            format_bytes(ds.get("total_bytes")),
-            ", ".join(ds.get("available_variants") or []) or "—",
-            ", ".join(ds.get("data_tiers") or []) or "—",
-        )
+        ]
+        if show_bytes:
+            row.append(format_bytes(ds.get("total_bytes")))
+        if show_variants:
+            row.append(", ".join(ds.get("available_variants") or []) or "—")
+        if show_tiers:
+            row.append(", ".join(ds.get("data_tiers") or []) or "—")
+        table.add_row(*row)
     return table
 
 
@@ -143,8 +163,15 @@ def showcase_info_text(detail: dict[str, Any]) -> tuple[Table, Table]:
     variant/scope/quota the access code is entitled to). Deliberately prints
     NO per-segment rows — internal segment IDs are never surfaced to showcase
     clients; only a segment count.
+
+    Modality detection goes through ``resolve_modality`` so an ego dataset
+    is labelled ``ego`` even when the live backend response omits the
+    explicit ``modality`` field (see the docstring on ``resolve_modality``).
+    For ego rows, ``segment_count`` is preferred but ``episode_count`` is
+    used as a fallback when the wire response doesn't carry segments —
+    showcase listings call them "episodes" uniformly today.
     """
-    modality = detail.get("modality") or "teleop"
+    modality = resolve_modality(detail)
     meta = Table(
         title=f"{detail.get('title') or detail['slug']} ({modality})",
         show_header=False,
@@ -164,11 +191,27 @@ def showcase_info_text(detail: dict[str, Any]) -> tuple[Table, Table]:
         "hours",
         f"{hours_val:.1f}h" if isinstance(hours_val, (int, float)) else "—",
     )
-    if modality == "ego" and detail.get("segment_count") is not None:
-        meta.add_row("segments", str(detail["segment_count"]))
+    if modality == "ego":
+        # segment_count is the precise figure; the showcase listing
+        # omits it (informational), so fall back to episode_count which
+        # the listing always populates.
+        count = detail.get("segment_count")
+        if count is None:
+            count = detail.get("episode_count") or 0
+        meta.add_row("segments", str(count))
     else:
         meta.add_row("episodes", str(detail.get("episode_count") or 0))
-    variants = detail.get("variants_available") or []
+    # ``variants_available`` may be missing on the wire even when the
+    # caller's grants clearly cover raw/processed; derive it from the
+    # grants in that case so the "variants available" row never
+    # contradicts the grants table below.
+    variants = detail.get("variants_available") or sorted(
+        {
+            g.get("variant")
+            for g in (detail.get("effective_grants") or [])
+            if g.get("variant")
+        }
+    )
     meta.add_row("variants available", ", ".join(variants) or "—")
 
     grants = Table(title="Your access (grants)")

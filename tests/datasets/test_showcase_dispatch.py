@@ -178,10 +178,34 @@ def test_download_showcase_rejects_platform_flags(cli_runner, tmp_home):
 def test_download_showcase_hits_gated_download_endpoint(
     cli_runner, respx_mock, tmp_home
 ):
-    """Showcase `datasets download` routes to the gated download endpoint."""
+    """Showcase `datasets download` routes to the gated download endpoint.
+
+    Ego datasets require ``--variant``; the pre-flight modality check
+    that enforces this also fetches the detail endpoint, so both routes
+    are mocked.
+    """
     from verlet.cli import cli
 
     _seed_showcase_profile(tmp_home)
+    respx_mock.get(
+        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+    ).respond(
+        200,
+        json={
+            "id": "granted-ego-ds",
+            "slug": "granted-ego-ds",
+            "title": "Granted Ego DS",
+            "modality": "ego",
+            "task_type": "ego",
+            "robot_embodiment": "human-ego",
+            "episode_count": 10,
+            "total_hours": 1.0,
+            "effective_grants": [
+                {"variant": "raw", "scope": "full", "expires_at": None,
+                 "quota_remaining": None}
+            ],
+        },
+    )
     respx_mock.get(
         "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds/download"
     ).respond(
@@ -214,12 +238,61 @@ def test_download_showcase_hits_gated_download_endpoint(
     )
 
     result = cli_runner.invoke(
-        cli, ["datasets", "download", "granted-ego-ds", "--dry-run"]
+        cli,
+        [
+            "datasets", "download", "granted-ego-ds",
+            "--variant", "raw", "--dry-run",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert (
         "/api/v1/showcase/datasets/granted-ego-ds/download" in _paths(respx_mock)
     )
+
+
+def test_download_showcase_ego_without_variant_friendly_error(
+    cli_runner, respx_mock, tmp_home
+):
+    """An ego showcase dataset called with no ``--variant`` must NOT relay
+    the backend's raw Pydantic 422 ``[{'type': 'missing', ...}]`` body —
+    the CLI catches it pre-HTTP via a modality detail fetch and surfaces
+    a usage error listing the variants the caller's grants actually cover.
+    """
+    from verlet.cli import cli
+
+    _seed_showcase_profile(tmp_home)
+    respx_mock.get(
+        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+    ).respond(
+        200,
+        json={
+            "id": "granted-ego-ds",
+            "slug": "granted-ego-ds",
+            "title": "Granted Ego DS",
+            # No explicit modality — exercises the resolve_modality fallback.
+            "task_type": "ego",
+            "robot_embodiment": "human-ego",
+            "episode_count": 10,
+            "total_hours": 1.0,
+            "effective_grants": [
+                {"variant": "raw", "scope": "samples"},
+                {"variant": "raw", "scope": "full"},
+            ],
+        },
+    )
+    # Download endpoint NOT mocked — if the CLI reaches it, respx raises
+    # and we know the pre-flight check failed.
+
+    result = cli_runner.invoke(
+        cli, ["datasets", "download", "granted-ego-ds"]
+    )
+    assert result.exit_code == 2, result.output
+    out = result.output + (result.stderr or "")
+    assert "--variant is required" in out
+    assert "raw" in out
+    # The raw Pydantic-422 leak must NOT appear.
+    assert "Pydantic" not in out
+    assert "'type': 'missing'" not in out
 
 
 def test_ego_command_removed(cli_runner, tmp_home):

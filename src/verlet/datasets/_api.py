@@ -150,6 +150,41 @@ def is_ego_row(item: dict[str, Any]) -> bool:
     return "raw" in (item.get("data_tiers") or [])
 
 
+def resolve_modality(item: dict[str, Any]) -> str:
+    """Return ``"ego"`` or ``"teleop"`` tolerating an absent ``modality`` field.
+
+    The showcase backend's listing + detail responses are typed with an
+    explicit ``modality`` discriminator, but the live deployment as of
+    2026-05-23 omits the field on the wire (likely default-value
+    suppression in the response model). Hands-on against api.verlet.co
+    surfaced ego datasets rendered as ``(teleop)`` in ``datasets info``
+    and the listing — confusing for a showcase prospect who can see in
+    the description that it's egocentric content.
+
+    Precedence:
+
+    1. Explicit ``modality`` field when present (server-authoritative).
+    2. ``task_type == "ego"`` or ``robot_embodiment == "human-ego"`` —
+       both are reliable ego markers on the showcase responses today.
+    3. The platform-catalog discriminator: ``ego_task_dataset_id``.
+    4. Default to ``"teleop"``.
+
+    Used by ``normalize_showcase_list_item`` and ``_render.showcase_info_text``.
+    Distinct from ``is_ego_row`` only in return type (str vs bool) — kept
+    separate because the renderers print the string directly.
+    """
+    explicit = item.get("modality")
+    if explicit in ("ego", "teleop"):
+        return explicit
+    if (
+        item.get("task_type") == "ego"
+        or item.get("robot_embodiment") == "human-ego"
+        or item.get("ego_task_dataset_id") is not None
+    ):
+        return "ego"
+    return "teleop"
+
+
 def build_list_params(
     *,
     task_type: tuple[str, ...] = (),
@@ -438,8 +473,11 @@ def normalize_showcase_list_item(item: dict[str, Any]) -> dict[str, Any]:
     Sets ``ego_task_dataset_id`` for ego rows so ``is_ego_row`` reports the
     right modality; the showcase endpoint exposes ``modality`` /
     ``variants_available`` instead of the platform's discriminator fields.
+    Falls back through ``resolve_modality`` so a live-deployment quirk
+    where the wire omits ``modality`` doesn't mis-label every ego dataset
+    as teleop.
     """
-    is_ego = item.get("modality") == "ego"
+    is_ego = resolve_modality(item) == "ego"
     variants = item.get("variants_available") or []
     return {
         "slug": item["slug"],

@@ -268,12 +268,32 @@ def _showcase_download(
     variant/scope from the access code's grant; per-episode selection and
     server-side conversion are not part of the showcase surface, so the
     platform-only flags are rejected with a clear ``UsageError``.
+
+    For ego datasets the download endpoint requires ``--variant`` as a
+    query parameter — fetching the detail body up front lets us catch a
+    missing ``--variant`` with a friendly message (listing the variants
+    the caller's grants actually cover) instead of relaying a raw
+    Pydantic 422 from the backend.
     """
+    from verlet.datasets._api import resolve_modality
+
     bad = sorted(flag for flag, val in rejected.items() if val)
     if bad:
         raise click.UsageError(
             f"{', '.join(bad)} not supported for showcase access codes; "
             "showcase downloads are whole-dataset."
+        )
+
+    detail = asyncio.run(fetch_showcase_detail(profile_name, slug))
+    if resolve_modality(detail) == "ego" and not variant:
+        grants = detail.get("effective_grants") or []
+        granted_variants = sorted(
+            {g.get("variant") for g in grants if g.get("variant")}
+        )
+        listing = ", ".join(granted_variants) or "raw, processed"
+        raise click.UsageError(
+            f"'{slug}' is an ego dataset — --variant is required. "
+            f"Your grants cover: {listing}."
         )
 
     if not dry_run and not check_license_accepted():
