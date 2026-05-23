@@ -53,7 +53,31 @@ class AuthenticatedClient:
     def __init__(self, profile_name: str | None = None) -> None:
         self._profile_name = resolve_profile_name(profile_name)
         self._profile = require_profile(self._profile_name)
+        self._check_not_expired()
         self._http = httpx.Client(timeout=30.0)
+
+    def _check_not_expired(self) -> None:
+        """Fail fast pre-HTTP for expired non-refreshable profiles.
+
+        Device-flow profiles have a refresh path (``_refresh_if_needed``)
+        and are exempt — they refresh transparently on the next request.
+        Every other kind (showcase access code, PAT, bundle grant) is dead
+        on expiry, so raising a tailored ClickException here saves a round
+        trip and replaces the backend's bare ``Invalid or expired …`` body
+        with an actionable refresh command.
+        """
+        import click
+
+        from .auth.expiry import is_profile_expired, refresh_command
+
+        if self._profile.get("kind") == "device_flow":
+            return
+        if not is_profile_expired(self._profile):
+            return
+        raise click.ClickException(
+            f"Your {self._profile.get('kind', 'token')} has expired. "
+            f"Refresh with `{refresh_command(self._profile)}`."
+        )
 
     @property
     def api_url(self) -> str:

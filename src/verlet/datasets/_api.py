@@ -71,30 +71,65 @@ SHOWCASE_DETAIL_PATH = "/api/v1/showcase/datasets/{slug_or_id}"
 SHOWCASE_DOWNLOAD_PATH = "/api/v1/showcase/datasets/{slug_or_id}/download"
 
 
+_EXPIRY_HINT_EMITTED: set[str] = set()
+
+
 def _api_url_and_headers(profile_name: str | None) -> tuple[str, dict[str, str]]:
     """Resolve api_url + Authorization header for catalog list/info endpoints.
 
     Anonymous-OK: returns ``(DEFAULT_API_URL, {})`` when no profile is active.
+    If a profile IS active but its non-refreshable token has already expired
+    (showcase access code, PAT, bundle grant), this helper drops the Bearer
+    header and emits a one-line stderr hint pointing at the right refresh
+    command — so anonymous-public browse keeps working from a stale CLI
+    install instead of erroring out with the backend's bare ``Invalid or
+    expired …`` body. Per-profile-name dedup keeps the warning to once per
+    process.
+
     Never raises ``ProfileNotFoundError`` (use ``AuthenticatedClient`` directly
     for download — that path requires auth and ``require_profile()`` fails fast
     in commands.py before this helper is even called).
     """
+    import sys
+
+    from verlet.auth.expiry import is_profile_expired, refresh_command
     from verlet.telemetry import current_user_agent
 
     name = resolve_profile_name(profile_name)
     profile = get_profile(name)
+    ua = current_user_agent()
     if profile is None:
         # Anonymous path — no Authorization header. Use the api_client's
         # canonical default URL so dev/staging overrides still flow through
         # one constant. We DO send the User-Agent on every request per
         # D-DIST1; default is bare ``verlet-cli/<v>`` until the user opts
         # in via ``verlet config telemetry enable``.
-        return (DEFAULT_API_URL, {"User-Agent": current_user_agent()})
-    client = AuthenticatedClient(name)
-    try:
-        return (client.api_url, client.headers())
-    finally:
-        client.close()
+        return (DEFAULT_API_URL, {"User-Agent": ua})
+
+    api_url = profile.get("api_url") or DEFAULT_API_URL
+    if (
+        profile.get("kind") != "device_flow"
+        and is_profile_expired(profile)
+    ):
+        # Expired non-refreshable token — fall back to anonymous-public so
+        # the catalog browse still works. Warn once per process per profile
+        # so the user knows to refresh without spamming the stderr stream.
+        if name not in _EXPIRY_HINT_EMITTED:
+            sys.stderr.write(
+                f"warning: your {profile.get('kind')} token has expired — "
+                f"continuing anonymously. "
+                f"Refresh with `{refresh_command(profile)}`.\n"
+            )
+            _EXPIRY_HINT_EMITTED.add(name)
+        return (api_url, {"User-Agent": ua})
+
+    access_token = profile.get("access_token")
+    if not access_token:
+        return (api_url, {"User-Agent": ua})
+    return (
+        api_url,
+        {"Authorization": f"Bearer {access_token}", "User-Agent": ua},
+    )
 
 
 def is_ego_row(item: dict[str, Any]) -> bool:
