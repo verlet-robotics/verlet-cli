@@ -7,12 +7,11 @@ D-FORMAT1 reattach behavior:
     inlined manifest. On failure, prints the verbatim server error and exits
     non-zero. On 404, prints "job not found" and exits 1.
 
-  * `verlet datasets jobs` (no argument) — prints a deferred-feature notice
-    and exits 0 WITHOUT making any HTTP call. Listing is intentionally NOT
-    shipped in Phase 30 because the backend doesn't expose
-    `GET /api/platform/v1/downloads/jobs?account_id=<self>` yet (verified
-    during planning). A future phase can add the endpoint without changing
-    this CLI invocation contract — the bare command keeps working.
+  * `verlet datasets jobs --slug <ds>` — lists conversion jobs for one
+    dataset via `GET /api/platform/v1/downloads/{slug}/conversions`.
+
+  * `verlet datasets jobs` (no argument) — lists every conversion job the
+    account has triggered via `GET /api/platform/v1/downloads/jobs` (G-P5).
 
 The reattach path REUSES Plan 30-04's ``poll_conversion_job`` from
 ``verlet.datasets.convert``; the Rich progress UX + stderr-on-failure
@@ -38,18 +37,13 @@ from verlet.display import console
 from verlet.download import DownloadPlanItem, download_resolved
 
 
-LISTING_DEFERRED_MSG = (
-    "Listing not yet supported by server. "
-    "Pass <job_id> to reattach to a specific job."
-)
-"""D-FORMAT1 deferred-feature notice. Byte-asserted in
-``tests/datasets/test_jobs_reattach.py::test_jobs_no_id_prints_listing_deferred_notice_no_http``
-so that any future copy-paste drift surfaces as a test failure. The wording
-points the user at the supported single-job reattach path."""
-
-
 @click.command("jobs")
 @click.argument("job_id", required=False)
+@click.option(
+    "--slug",
+    default=None,
+    help="List conversion jobs for one dataset instead of reattaching.",
+)
 @click.option(
     "-v", "--verbose", is_flag=True,
     help="Stream server-side conversion log lines on stderr (D-FORMAT4).",
@@ -66,38 +60,57 @@ points the user at the supported single-job reattach path."""
 def jobs(
     ctx: click.Context,
     job_id: str | None,
+    slug: str | None,
     verbose: bool,
     quiet: bool,
     output: str,
 ) -> None:
-    """Reattach to a specific conversion job (listing not yet available).
+    """Reattach to a conversion job, or list conversion jobs (G-P5).
 
     \b
     Examples:
       verlet datasets jobs job-abc123     # reattach + download when ready
-      verlet datasets jobs                # listing-deferred notice (exit 0)
+      verlet datasets jobs --slug my-ds   # list one dataset's conversion jobs
+      verlet datasets jobs                # list every job your account has
     """
-    if job_id is None:
-        # Listing not yet supported — print the deferred-feature notice and
-        # exit 0 with ZERO HTTP work. Future server work can ship the listing
-        # without changing this CLI's invocation contract.
-        click.echo(LISTING_DEFERRED_MSG)
-        return
-
-    # 1. Auth gate — single-job reattach requires an active profile.
     flag_profile = ctx.obj.get("profile") if ctx.obj else None
     profile_name = resolve_profile_name(flag_profile)
+
+    # Reattach path — a job_id was given.
+    if job_id is not None:
+        try:
+            require_profile(profile_name)
+        except ProfileNotFoundError:
+            raise click.ClickException(
+                "Not authenticated. Run `verlet auth login` to reattach to jobs."
+            )
+        # Async lives in a helper so the Click entry stays small and the test
+        # can patch ``asyncio.sleep`` on the convert module's reference.
+        asyncio.run(_run_reattach(profile_name, job_id, verbose, quiet, output))
+        return
+
+    # Listing path — no job_id. `--slug` lists one dataset's conversions;
+    # otherwise list every conversion job the account has triggered.
     try:
         require_profile(profile_name)
     except ProfileNotFoundError:
         raise click.ClickException(
-            "Not authenticated. Run `verlet auth login` to reattach to jobs."
+            "Not authenticated. Run `verlet auth login` to list conversion jobs."
         )
 
-    # 2. Drive the async runner. Async lives in a helper so the Click entry
-    # stays small and the test can patch ``asyncio.sleep`` on the convert
-    # module's reference.
-    asyncio.run(_run_reattach(profile_name, job_id, verbose, quiet, output))
+    from verlet.datasets._api import fetch_all_jobs, fetch_dataset_conversions
+    from verlet.datasets._render import conversions_table
+
+    if slug:
+        items = asyncio.run(fetch_dataset_conversions(profile_name, slug))
+    else:
+        items = asyncio.run(fetch_all_jobs(profile_name))
+
+    if not items:
+        scope = f"dataset '{slug}'" if slug else "your account"
+        console.print(f"[dim]No conversion jobs for {scope}.[/dim]")
+        return
+    console.print(conversions_table(items))
 
 
 async def _run_reattach(

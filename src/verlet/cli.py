@@ -110,13 +110,17 @@ docs_group.add_command(docs_export)
 from verlet.auth.commands import auth_group  # noqa: E402
 from verlet.bundles import bundles_group  # noqa: E402
 from verlet.datasets import datasets_group  # noqa: E402
+from verlet.destinations import destinations_group  # noqa: E402
+from verlet.showcase import showcase_group  # noqa: E402
 from verlet.update import update as update_command  # noqa: E402
 
 cli.add_command(auth_group)
 cli.add_command(bundles_group)
 cli.add_command(config_group)
 cli.add_command(datasets_group)
+cli.add_command(destinations_group)
 cli.add_command(docs_group)
+cli.add_command(showcase_group)
 cli.add_command(update_command)
 
 

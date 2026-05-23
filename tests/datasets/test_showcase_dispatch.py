@@ -122,6 +122,47 @@ def test_info_showcase_shows_grants_no_segment_ids(
     assert "raw" in result.output and "full" in result.output
 
 
+def test_info_showcase_renders_quota_and_expiry(cli_runner, respx_mock, tmp_home):
+    """`datasets info` surfaces a grant's remaining quota + expiry (G-S1).
+
+    A prospect must be able to see 'downloads used vs quota' and 'valid until'
+    before a 429 surprises them. The data already ships on the showcase detail
+    response — this asserts the renderer surfaces it.
+    """
+    from verlet.cli import cli
+
+    _seed_showcase_profile(tmp_home)
+    respx_mock.get(
+        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+    ).respond(
+        200,
+        json={
+            "id": "00000000-0000-0000-0000-0000000000aa",
+            "slug": "granted-ego-ds",
+            "title": "Granted Ego DS",
+            "modality": "ego",
+            "segment_count": 12,
+            "variants_available": ["processed"],
+            "effective_grants": [
+                {
+                    "variant": "processed",
+                    "scope": "samples",
+                    "expires_at": "2026-12-31T00:00:00+00:00",
+                    "quota_remaining": {"bytes": 5_000_000_000, "episodes": 40},
+                },
+            ],
+        },
+    )
+
+    result = cli_runner.invoke(cli, ["datasets", "info", "granted-ego-ds"])
+    assert result.exit_code == 0, result.output
+    # Quota: bytes pass through format_bytes; episodes render as "<n> units".
+    assert "5.0 GB" in result.output
+    assert "40 units" in result.output
+    # Grant expiry surfaces verbatim (date portion is enough).
+    assert "2026-12-31" in result.output
+
+
 def test_download_showcase_rejects_platform_flags(cli_runner, tmp_home):
     """Showcase credentials cannot use --format/--detach/--episode-ids etc."""
     from verlet.cli import cli

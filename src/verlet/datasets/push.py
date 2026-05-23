@@ -27,7 +27,11 @@ from typing import Any
 import click
 
 from verlet.api_client import AuthenticatedClient
-from verlet.auth.profiles import resolve_profile_name
+from verlet.auth.profiles import (
+    ProfileNotFoundError,
+    require_profile,
+    resolve_profile_name,
+)
 from verlet.datasets._validation import parse_hf_url, resolve_hf_token
 from verlet.display import console
 
@@ -64,9 +68,16 @@ verlet datasets push imitate-cube --to huggingface://acme/imitate-cube --format 
 @click.argument("slug")
 @click.option(
     "--to",
-    "destination",
-    required=True,
-    help="Destination URL, e.g. huggingface://my-org/my-dataset",
+    "to_url",
+    default=None,
+    help="Ad-hoc destination URL, e.g. huggingface://my-org/my-dataset.",
+)
+@click.option(
+    "--destination",
+    "-d",
+    "dest_ref",
+    default=None,
+    help="A saved cloud destination, by name or id (see `verlet destinations`).",
 )
 @click.option(
     "--format",
@@ -75,43 +86,73 @@ verlet datasets push imitate-cube --to huggingface://acme/imitate-cube --format 
     help="Convert to this format before push (forwarded to /push).",
 )
 @click.pass_context
-def push(ctx: click.Context, slug: str, destination: str, fmt: str | None) -> None:
-    """Push a purchased dataset to HuggingFace.
+def push(
+    ctx: click.Context,
+    slug: str,
+    to_url: str | None,
+    dest_ref: str | None,
+    fmt: str | None,
+) -> None:
+    """Push a purchased dataset to HuggingFace or a saved cloud destination.
+
+    \b
+    Provide exactly one of:
+      --to huggingface://org/repo   ad-hoc HuggingFace push (needs an HF token)
+      --destination <name-or-id>    a destination saved via `verlet destinations`
 
     \b
     Examples:
       verlet datasets push imitate-cube --to huggingface://acme/imitate-cube
-      HF_TOKEN=hf_xxx verlet datasets push imitate-cube --to huggingface://acme/imitate-cube
+      verlet datasets push imitate-cube --destination my-s3-bucket
     """
-    # 1. Parse + validate the destination URL pre-HTTP. parse_hf_url raises
-    # click.BadParameter (exit 2) on malformed input — no network call fires.
-    org, repo = parse_hf_url(destination)
+    # 1. Exactly one destination shape — mirrors the backend PushTriggerRequest
+    # XOR. UsageError exits 2 with zero network traffic.
+    if bool(to_url) == bool(dest_ref):
+        raise click.UsageError("Provide exactly one of --to or --destination.")
 
-    # 2. Resolve the active profile + HF token. resolve_hf_token enforces
-    # D-FORMAT2 precedence (profile > HF_TOKEN env > UsageError).
     flag_profile = ctx.obj.get("profile") if ctx.obj else None
     profile_name = resolve_profile_name(flag_profile)
-    token = resolve_hf_token(profile_name)
 
-    # 3. Run the async drive.
-    asyncio.run(_drive_push(profile_name, slug, destination, token, fmt))
+    # Auth gate — fail fast pre-HTTP with a tailored message, matching every
+    # other authed command in 0.10.0 (library, jobs, destinations, showcase).
+    try:
+        require_profile(profile_name)
+    except ProfileNotFoundError:
+        raise click.ClickException(
+            "Not authenticated. Run `verlet auth login` to push datasets."
+        )
+
+    if to_url:
+        # Ad-hoc HuggingFace push. parse_hf_url raises BadParameter (exit 2)
+        # on malformed input pre-HTTP. resolve_hf_token enforces D-FORMAT2
+        # precedence (profile > HF_TOKEN env > UsageError).
+        parse_hf_url(to_url)
+        token = resolve_hf_token(profile_name)
+        body: dict[str, Any] = {"destination_url": to_url, "hf_token": token}
+    else:
+        # Saved cloud destination. Resolve name→id; the HF-token gate does NOT
+        # apply here — an S3/GCS destination has nothing to do with HF.
+        from verlet.destinations._validation import resolve_destination_ref
+
+        dest_id = asyncio.run(
+            resolve_destination_ref(dest_ref or "", profile_name)
+        )
+        body = {"destination_id": dest_id}
+
+    if fmt:
+        body["format"] = fmt
+
+    asyncio.run(_drive_push(profile_name, slug, body))
 
 
 async def _drive_push(
     profile_name: str,
     slug: str,
-    destination: str,
-    hf_token: str,
-    fmt: str | None,
+    body: dict[str, Any],
 ) -> None:
     """POST /push then poll /pushes/recent until terminal."""
     client = AuthenticatedClient(profile_name)
     try:
-        body: dict[str, Any] = {
-            "destination_url": destination,
-            "hf_token": hf_token,
-            "format": fmt,
-        }
         resp = client.post(
             f"/api/platform/v1/downloads/{slug}/push", json=body
         )

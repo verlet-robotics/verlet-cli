@@ -196,6 +196,259 @@ def showcase_info_text(detail: dict[str, Any]) -> tuple[Table, Table]:
     return (meta, grants)
 
 
+def library_table(datasets: list[dict[str, Any]]) -> Table:
+    """Owned single-dataset purchases view for ``verlet datasets library`` (G-P1).
+
+    One row per purchased catalog dataset. ``available_formats`` is inlined so
+    a buyer can see which formats are download-ready without an extra round
+    trip; ``purchased_at`` is trimmed to the date.
+    """
+    table = Table(title="Your Library — Purchased Datasets")
+    table.add_column("Slug", style="cyan", no_wrap=True)
+    table.add_column("Title")
+    table.add_column("Variant")
+    table.add_column("Episodes", justify="right")
+    table.add_column("Hours", justify="right")
+    table.add_column("Formats")
+    table.add_column("Status")
+    table.add_column("Purchased")
+    for d in datasets:
+        hours_val = d.get("total_hours")
+        hours_str = (
+            f"{float(hours_val):.1f}"
+            if isinstance(hours_val, (int, float))
+            else "—"
+        )
+        purchased = d.get("purchased_at")
+        purchased_str = (
+            purchased[:10] if isinstance(purchased, str) and purchased else "—"
+        )
+        table.add_row(
+            d.get("dataset_slug", ""),
+            d.get("dataset_title") or "—",
+            d.get("variant") or "processed",
+            str(d.get("episode_count") or 0),
+            hours_str,
+            ", ".join(d.get("available_formats") or []) or "—",
+            d.get("status") or "—",
+            purchased_str,
+        )
+    return table
+
+
+def library_bundles_table(bundles: list[dict[str, Any]]) -> Table:
+    """Owned bundle purchases view for ``verlet datasets library`` (G-P1).
+
+    Bundles render as a separate section below the per-dataset table. A
+    commercial bundle has no expiry (``expires_at`` is null) → ``—``.
+    """
+    table = Table(title="Your Library — Bundles")
+    table.add_column("Bundle", style="cyan", no_wrap=True)
+    table.add_column("Name")
+    table.add_column("License")
+    table.add_column("Datasets", justify="right")
+    table.add_column("Hours", justify="right")
+    table.add_column("Expires")
+    for b in bundles:
+        hours_val = b.get("total_hours")
+        hours_str = (
+            f"{float(hours_val):.1f}"
+            if isinstance(hours_val, (int, float))
+            else "—"
+        )
+        table.add_row(
+            b.get("bundle_slug", ""),
+            b.get("bundle_name") or "—",
+            b.get("license_tier") or "—",
+            str(b.get("dataset_count") or 0),
+            hours_str,
+            b.get("expires_at") or "—",
+        )
+    return table
+
+
+def episodes_table(items: list[dict[str, Any]]) -> Table:
+    """Per-dataset episode listing (G-P7).
+
+    The ``Index`` column is the ``dataset_index`` — the integer
+    ``verlet datasets download --episode-ids`` expects, so a user can browse
+    here and feed the indices straight into a selective download.
+    """
+    table = Table(title="Episodes")
+    table.add_column("Index", justify="right")
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Duration", justify="right")
+    table.add_column("Frames", justify="right")
+    table.add_column("QC")
+    table.add_column("Free sample")
+    for ep in items:
+        idx = ep.get("dataset_index")
+        table.add_row(
+            str(idx) if idx is not None else "—",
+            str(ep.get("id") or "—"),
+            format_duration(ep.get("duration_secs") or 0),
+            str(ep.get("frame_count") or 0),
+            ep.get("qc_status") or "—",
+            "yes" if ep.get("is_free_sample") else "—",
+        )
+    return table
+
+
+def segments_table(items: list[dict[str, Any]]) -> Table:
+    """Per-dataset segment listing for ego datasets (G-P7).
+
+    ``Index`` is the ``dataset_index`` consumed by
+    ``verlet datasets download --segment-ids``.
+    """
+    table = Table(title="Segments")
+    table.add_column("Index", justify="right")
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Name")
+    table.add_column("Duration", justify="right")
+    table.add_column("Category")
+    table.add_column("Hand cov.", justify="right")
+    table.add_column("Depth")
+    table.add_column("Free sample")
+    for s in items:
+        idx = s.get("dataset_index")
+        cov = s.get("hand_coverage")
+        cov_str = f"{cov * 100:.0f}%" if isinstance(cov, (int, float)) else "—"
+        table.add_row(
+            str(idx) if idx is not None else "—",
+            str(s.get("id") or "—"),
+            s.get("name") or "—",
+            format_duration(s.get("duration_s") or 0),
+            s.get("category") or "—",
+            cov_str,
+            "yes" if s.get("has_depth") else "—",
+            "yes" if s.get("is_free_sample") else "—",
+        )
+    return table
+
+
+def page_footer(body: dict[str, Any]) -> str | None:
+    """Footer for a ``PaginatedResponse`` body when more pages remain."""
+    total = body.get("total") or 0
+    page = body.get("page") or 1
+    items = body.get("items") or []
+    page_size = body.get("page_size") or len(items) or 1
+    seen = (page - 1) * page_size + len(items)
+    if seen >= total:
+        return None
+    return (
+        f"Page {page} — showing {len(items)} of {total}. "
+        "Use --page to see more, or --json for the full payload."
+    )
+
+
+def qc_distributions_table(body: dict[str, Any]) -> Table:
+    """Per-check QC-metric distributions for ``verlet datasets quality`` (G-P6)."""
+    dists = body.get("distributions") or {}
+    table = Table(title="QC Check Distributions")
+    table.add_column("Check", style="cyan")
+    table.add_column("Mean", justify="right")
+    table.add_column("Std", justify="right")
+    table.add_column("Min", justify="right")
+    table.add_column("Max", justify="right")
+    table.add_column("N", justify="right")
+    for name, d in sorted(dists.items()):
+        table.add_row(
+            name,
+            f"{d.get('mean', 0):.3f}",
+            f"{d.get('std', 0):.3f}",
+            f"{d.get('min', 0):.3f}",
+            f"{d.get('max', 0):.3f}",
+            str(len(d.get("values") or [])),
+        )
+    return table
+
+
+_ANALYTICS_METRIC_KEYS = (
+    "duration",
+    "hz_variance",
+    "alignment_score",
+    "mean_jerk",
+    "mean_action_norm",
+    "dropped_frames",
+    "idle_frame_count",
+    "duration_zscore",
+    "max_jerk",
+    "max_action_norm",
+)
+
+
+def analytics_view(body: dict[str, Any]) -> tuple[Table, Table, Table]:
+    """Three stacked tables for ``verlet datasets analytics`` (G-P6).
+
+    Returns (summary, qc-status counts, metric distributions); the caller
+    prints them with separators, mirroring ``dataset_info_text``.
+    """
+    meta = Table(title="Dataset Analytics", show_header=False)
+    meta.add_column("Field", style="bold")
+    meta.add_column("Value")
+    meta.add_row("episodes", str(body.get("episode_count") or 0))
+    meta.add_row("episodes with QC", str(body.get("episodes_with_qc") or 0))
+
+    qc_table = Table(title="QC status")
+    qc_table.add_column("Status")
+    qc_table.add_column("Episodes", justify="right")
+    for status, count in sorted((body.get("qc_status_counts") or {}).items()):
+        qc_table.add_row(status, str(count))
+
+    metrics = Table(title="Metric distributions")
+    metrics.add_column("Metric", style="cyan")
+    metrics.add_column("Mean", justify="right")
+    metrics.add_column("Std", justify="right")
+    metrics.add_column("Min", justify="right")
+    metrics.add_column("Max", justify="right")
+    metrics.add_column("Median", justify="right")
+    metrics.add_column("CV", justify="right")
+    for key in _ANALYTICS_METRIC_KEYS:
+        dist = body.get(key)
+        if not dist:
+            continue
+        stats = dist.get("stats") or {}
+        metrics.add_row(
+            key,
+            f"{stats.get('mean', 0):.3f}",
+            f"{stats.get('std', 0):.3f}",
+            f"{stats.get('min', 0):.3f}",
+            f"{stats.get('max', 0):.3f}",
+            f"{stats.get('median', 0):.3f}",
+            f"{stats.get('cv', 0):.3f}",
+        )
+    return (meta, qc_table, metrics)
+
+
+def conversions_table(items: list[dict[str, Any]]) -> Table:
+    """Conversion-job listing for ``verlet datasets jobs`` (G-P5)."""
+    table = Table(title="Conversion Jobs")
+    table.add_column("Job ID", style="cyan", no_wrap=True)
+    table.add_column("Target format")
+    table.add_column("Status")
+    table.add_column("Progress", justify="right")
+    table.add_column("Size", justify="right")
+    table.add_column("Created")
+    for c in items:
+        total_ep = c.get("total_episodes") or 0
+        progress = (
+            f"{c.get('current_episode') or 0}/{total_ep}" if total_ep else "—"
+        )
+        created = c.get("created_at")
+        created_str = (
+            created[:10] if isinstance(created, str) and created else "—"
+        )
+        table.add_row(
+            str(c.get("id") or "—"),
+            c.get("target_format") or "—",
+            c.get("status") or "—",
+            progress,
+            format_bytes(c.get("total_size_bytes")),
+            created_str,
+        )
+    return table
+
+
 def dataset_info_json(detail: dict[str, Any]) -> str:
     """Direct CatalogDatasetDetail dump — no client-side reshape (D-CONTEXT)."""
     return json.dumps(detail, indent=2, default=str)

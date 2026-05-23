@@ -51,8 +51,17 @@ KIND_TO_MODALITY: dict[str, str] = {"all": "all", "teleop": "arm", "ego": "ego"}
 
 CATALOG_LIST_PATH = "/api/platform/v1/catalog/datasets"
 CATALOG_DETAIL_PATH = "/api/platform/v1/catalog/datasets/{slug_or_id}"
+CATALOG_EPISODES_PATH = "/api/platform/v1/catalog/datasets/{slug_or_id}/episodes"
+CATALOG_SEGMENTS_PATH = "/api/platform/v1/catalog/datasets/{slug_or_id}/segments"
+CATALOG_QC_DISTRIBUTIONS_PATH = (
+    "/api/platform/v1/catalog/datasets/{slug_or_id}/qc-distributions"
+)
+CATALOG_ANALYTICS_PATH = (
+    "/api/platform/v1/catalog/datasets/{slug_or_id}/analytics"
+)
 ARM_MANIFEST_PATH = "/api/platform/v1/downloads/{slug}/manifest"
 EGO_MANIFEST_PATH = "/api/platform/v1/downloads/ego/datasets/{slug}/manifest"
+LIBRARY_PATH = "/api/platform/v1/downloads/library"
 
 # Gated showcase endpoints. Showcase access codes (``kind=showcase_access_code``)
 # route to these instead of the platform catalog: every row and every download
@@ -169,6 +178,78 @@ async def fetch_catalog_detail(
             return resp.json()
 
 
+async def _fetch_catalog_anon(
+    profile_name: str | None, path: str, context: str, params: dict | None = None
+) -> dict:
+    """Anonymous-OK GET against a catalog sub-resource.
+
+    Shared by the episode/segment browse + QC/analytics inspect commands —
+    all hang off ``/catalog/datasets/{slug}/…`` and accept optional auth.
+    """
+    api_url, headers = _api_url_and_headers(profile_name)
+    with friendly_http(context):
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{api_url}{path}", params=params or {}, headers=headers
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+
+async def fetch_dataset_episodes(
+    profile_name: str | None,
+    slug_or_id: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """Anonymous-OK. Paginated episode listing for a dataset (G-P7)."""
+    return await _fetch_catalog_anon(
+        profile_name,
+        CATALOG_EPISODES_PATH.format(slug_or_id=slug_or_id),
+        f"listing episodes for '{slug_or_id}'",
+        {"page": page, "page_size": page_size},
+    )
+
+
+async def fetch_dataset_segments(
+    profile_name: str | None,
+    slug_or_id: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """Anonymous-OK. Paginated segment listing for an ego dataset (G-P7)."""
+    return await _fetch_catalog_anon(
+        profile_name,
+        CATALOG_SEGMENTS_PATH.format(slug_or_id=slug_or_id),
+        f"listing segments for '{slug_or_id}'",
+        {"page": page, "page_size": page_size},
+    )
+
+
+async def fetch_dataset_qc_distributions(
+    profile_name: str | None, slug_or_id: str
+) -> dict:
+    """Anonymous-OK. QC-metric distributions for a dataset (G-P6)."""
+    return await _fetch_catalog_anon(
+        profile_name,
+        CATALOG_QC_DISTRIBUTIONS_PATH.format(slug_or_id=slug_or_id),
+        f"fetching QC distributions for '{slug_or_id}'",
+    )
+
+
+async def fetch_dataset_analytics(
+    profile_name: str | None, slug_or_id: str
+) -> dict:
+    """Anonymous-OK. Aggregate analytics for a dataset (G-P6)."""
+    return await _fetch_catalog_anon(
+        profile_name,
+        CATALOG_ANALYTICS_PATH.format(slug_or_id=slug_or_id),
+        f"fetching analytics for '{slug_or_id}'",
+    )
+
+
 async def fetch_arm_manifest(
     profile_name: str,
     slug: str,
@@ -204,6 +285,36 @@ async def fetch_arm_manifest(
             if resp.status_code not in (200, 202):
                 resp.raise_for_status()
             return (resp.status_code, resp.json())
+    finally:
+        client.close()
+
+
+CONVERSIONS_PATH = "/api/platform/v1/downloads/{slug}/conversions"
+JOBS_LIST_PATH = "/api/platform/v1/downloads/jobs"
+
+
+async def fetch_dataset_conversions(
+    profile_name: str | None, slug: str
+) -> list[dict]:
+    """Authenticated. List conversion jobs for one dataset (G-P5)."""
+    client = AuthenticatedClient(profile_name)
+    try:
+        with friendly_http(f"listing conversions for '{slug}'"):
+            resp = client.get(CONVERSIONS_PATH.format(slug=slug))
+            resp.raise_for_status()
+            return resp.json()
+    finally:
+        client.close()
+
+
+async def fetch_all_jobs(profile_name: str | None) -> list[dict]:
+    """Authenticated. List every conversion job the account has triggered (G-P5)."""
+    client = AuthenticatedClient(profile_name)
+    try:
+        with friendly_http("listing conversion jobs"):
+            resp = client.get(JOBS_LIST_PATH)
+            resp.raise_for_status()
+            return resp.json()
     finally:
         client.close()
 
@@ -247,6 +358,24 @@ async def fetch_ego_manifest(
             resp = client.request(
                 "GET", EGO_MANIFEST_PATH.format(slug=slug), params=params
             )
+            resp.raise_for_status()
+            return resp.json()
+    finally:
+        client.close()
+
+
+async def fetch_library(profile_name: str | None) -> dict:
+    """Authenticated. List the caller's purchased datasets + bundles (G-P1).
+
+    Returns the raw ``LibraryListResponse`` body
+    ``{datasets: [...], count: N, bundles: [...]}``. ``commands`` calls
+    ``require_profile()`` before this helper, so the AuthenticatedClient
+    constructor's ``ProfileNotFoundError`` never fires here in practice.
+    """
+    client = AuthenticatedClient(profile_name)
+    try:
+        with friendly_http("listing your library"):
+            resp = client.request("GET", LIBRARY_PATH)
             resp.raise_for_status()
             return resp.json()
     finally:

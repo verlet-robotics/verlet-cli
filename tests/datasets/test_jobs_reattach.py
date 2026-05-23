@@ -5,7 +5,8 @@ Five behavior tests for CLIDATA-07 SC4 (single-job reattach):
   * test_jobs_reattach_processing_then_completed — poll loop drives to completion
   * test_jobs_reattach_already_completed_downloads_immediately — short-circuit
   * test_jobs_reattach_failed_prints_error_and_exits_nonzero — D-FORMAT3
-  * test_jobs_no_id_prints_listing_deferred_notice_no_http — listing not shipped
+  * test_jobs_no_id_lists_account_jobs / _slug_lists_dataset_conversions /
+    _no_id_empty_account — the G-P5 conversion-job listing
   * test_jobs_reattach_unknown_id_404 — 404 → "job not found" + exit 1
 
 The "no id" test asserts ZERO HTTP calls — the listing endpoint isn't
@@ -221,27 +222,69 @@ def test_jobs_reattach_failed_prints_error_and_exits_nonzero(
     assert "stage: convert" in combined, combined
 
 
-def test_jobs_no_id_prints_listing_deferred_notice_no_http(
-    cli_runner, respx_mock, tmp_home,
-):
-    """`verlet datasets jobs` (no argument) — prints the deferred-feature
-    notice on stdout and exits 0. ZERO HTTP calls — the listing endpoint
-    isn't implemented server-side (planning verification)."""
+def _conversion(fmt: str = "hdf5", status: str = "completed") -> dict:
+    """A DatasetConversionResponse-shaped row."""
+    return {
+        "id": f"conv-{fmt}",
+        "catalog_dataset_id": "cd-1",
+        "source_format": "lerobot-v2",
+        "target_format": fmt,
+        "target_format_version": "1.0",
+        "status": status,
+        "total_size_bytes": 1_500_000_000,
+        "total_episodes": 10,
+        "current_episode": 10,
+        "error_message": None,
+        "created_at": "2026-05-10T00:00:00+00:00",
+        "completed_at": "2026-05-10T01:00:00+00:00",
+    }
+
+
+def test_jobs_no_id_lists_account_jobs(cli_runner, respx_mock, tmp_home):
+    """`verlet datasets jobs` (no argument) lists every account conversion job."""
     from verlet.cli import cli
-    from verlet.datasets.jobs import LISTING_DEFERRED_MSG
 
     _seed_default_profile()
+    route = respx_mock.get(
+        "https://api.verlet.co/api/platform/v1/downloads/jobs"
+    ).respond(200, json=[_conversion("hdf5"), _conversion("rlds")])
 
     result = cli_runner.invoke(cli, ["datasets", "jobs"])
-
     assert result.exit_code == 0, result.output
-    # The verbatim deferred-feature notice from jobs.py.
-    assert LISTING_DEFERRED_MSG in (result.output or ""), result.output
-    # ZERO HTTP — the bare invocation must not call any endpoint.
-    assert len(respx_mock.calls) == 0, (
-        f"`verlet datasets jobs` (no id) must short-circuit before HTTP, "
-        f"got {len(respx_mock.calls)} calls"
+    assert route.called
+    assert "conv-hdf5" in result.output
+    assert "conv-rlds" in result.output
+
+
+def test_jobs_slug_lists_dataset_conversions(cli_runner, respx_mock, tmp_home):
+    """`verlet datasets jobs --slug <ds>` lists that dataset's conversion jobs."""
+    from verlet.cli import cli
+
+    _seed_default_profile()
+    route = respx_mock.get(
+        "https://api.verlet.co/api/platform/v1/downloads/imitate-cube/conversions"
+    ).respond(200, json=[_conversion("hdf5")])
+
+    result = cli_runner.invoke(
+        cli, ["datasets", "jobs", "--slug", "imitate-cube"]
     )
+    assert result.exit_code == 0, result.output
+    assert route.called
+    assert "conv-hdf5" in result.output
+
+
+def test_jobs_no_id_empty_account(cli_runner, respx_mock, tmp_home):
+    """No conversion jobs → the dim 'no jobs' message, exit 0."""
+    from verlet.cli import cli
+
+    _seed_default_profile()
+    respx_mock.get(
+        "https://api.verlet.co/api/platform/v1/downloads/jobs"
+    ).respond(200, json=[])
+
+    result = cli_runner.invoke(cli, ["datasets", "jobs"])
+    assert result.exit_code == 0, result.output
+    assert "No conversion jobs" in result.output
 
 
 def test_jobs_reattach_unknown_id_404(cli_runner, respx_mock, tmp_home):

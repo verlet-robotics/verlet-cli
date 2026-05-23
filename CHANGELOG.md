@@ -7,6 +7,40 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-05-22
+
+Closes the "I paid, now what" gap and makes datasets inspectable before a
+download. Seven new capabilities, all additive — no breaking changes.
+
+### Added
+
+- **`verlet datasets library`** — list the datasets and bundles your account
+  has purchased (`GET /downloads/library`). Showcase access codes, which own
+  no purchases, are rejected with a pointer to `verlet datasets list`.
+- **`verlet destinations`** command group — manage cloud push destinations:
+  - `destinations list` / `providers` — saved destinations and connectable
+    providers.
+  - `destinations add <provider>` — dispatches on the provider's auth kind:
+    manual providers (R2, etc.) take credentials directly (`--credential
+    KEY=VALUE` or `--credentials-json`); AWS S3 runs the CloudFormation
+    deeplink flow (opens a browser, paste back the RoleArn). OAuth providers
+    are deferred — connect them in the web app for now.
+  - `destinations rm <name-or-id>` — delete a saved destination.
+- **`verlet datasets push --destination <name-or-id>`** — push a purchased
+  dataset to a saved cloud destination. `--to huggingface://…` (ad-hoc HF
+  push) is unchanged; exactly one of the two is required.
+- **`verlet datasets episodes <slug>` / `segments <slug>`** — browse a
+  dataset's episodes/segments, surfacing the indices that
+  `download --episode-ids` / `--segment-ids` consume.
+- **`verlet datasets quality <slug>` / `analytics <slug>`** — QC-metric
+  distributions and aggregate analytics, for vetting a dataset before
+  downloading gigabytes.
+- **`verlet datasets jobs`** now lists conversion jobs: `--slug <ds>` for one
+  dataset, no argument for every job your account has triggered (replacing
+  the former "listing not supported" stub).
+- **`verlet showcase stats`** — Verlet fleet operation stats (fleet size,
+  recent throughput, QC pass rate). Requires a showcase access code.
+
 ## [0.9.0] — 2026-05-22
 
 Showcase CLI reconciled with the dataset grant system; deprecated command

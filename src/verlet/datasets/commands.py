@@ -621,10 +621,42 @@ datasets_group.add_command(push_command)
 
 
 # ---------------------------------------------------------------------------
-# Plan 30-06 (CLIDATA-07 SC4): register `verlet datasets jobs <job_id>` for
-# single-job reattach (listing deferred — backend listing endpoint absent).
+# `verlet datasets jobs` — single-job reattach + per-dataset / account-wide
+# listing (G-P5). Backs onto GET /downloads/{slug}/conversions and the
+# account-wide GET /downloads/jobs added in 0.10.0.
 # ---------------------------------------------------------------------------
 
 from verlet.datasets.jobs import jobs as jobs_command  # noqa: E402
 
 datasets_group.add_command(jobs_command)
+
+
+# ---------------------------------------------------------------------------
+# `verlet datasets library` (G-P1) — list purchased datasets + bundles.
+# ---------------------------------------------------------------------------
+
+from verlet.datasets.library import library as library_command  # noqa: E402
+
+datasets_group.add_command(library_command)
+
+
+# ---------------------------------------------------------------------------
+# `verlet datasets episodes|segments` (G-P7) — browse a dataset's contents.
+# ---------------------------------------------------------------------------
+
+from verlet.datasets.browse import episodes as episodes_command  # noqa: E402
+from verlet.datasets.browse import segments as segments_command  # noqa: E402
+
+datasets_group.add_command(episodes_command)
+datasets_group.add_command(segments_command)
+
+
+# ---------------------------------------------------------------------------
+# `verlet datasets quality|analytics` (G-P6) — inspect QC before download.
+# ---------------------------------------------------------------------------
+
+from verlet.datasets.inspect import analytics as analytics_command  # noqa: E402
+from verlet.datasets.inspect import quality as quality_command  # noqa: E402
+
+datasets_group.add_command(analytics_command)
+datasets_group.add_command(quality_command)
