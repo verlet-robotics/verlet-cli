@@ -39,17 +39,42 @@ def destinations_table(items: list[dict[str, Any]]) -> Table:
 
 
 def providers_table(items: list[dict[str, Any]]) -> Table:
-    """Connectable destination providers — name, label, and how to connect."""
+    """Connectable destination providers — name, label, how to connect,
+    and the credential keys ``add`` will prompt for (or the deeplink hint
+    when the backend serves one). The Credentials column reads from the
+    server's ``manual_fields`` when populated and falls back to the CLI's
+    per-provider static knowledge so the column is never empty for
+    manual-kind providers — see :mod:`verlet.destinations._fields`.
+    """
+    from verlet.destinations._fields import fallback_summary
+
     table = Table(title="Destination Providers")
     table.add_column("Provider", style="cyan", no_wrap=True)
     table.add_column("Label")
     table.add_column("Connect via")
+    table.add_column("Credentials")
     table.add_column("Notes")
     for p in items:
+        name = p.get("name", "")
+        auth_kind = p.get("auth_kind") or "—"
+        # Server-advertised manual_fields > CLI fallback. Deeplink/oauth
+        # providers carry their own connect flow and have no field list
+        # to render here — we leave Credentials blank for those.
+        if auth_kind == "manual":
+            server_fields = p.get("manual_fields") or []
+            if server_fields:
+                creds_str = ", ".join(
+                    f.get("key") or f.get("name") or "" for f in server_fields
+                ) or "—"
+            else:
+                creds_str = fallback_summary(name) or "—"
+        else:
+            creds_str = "—"
         table.add_row(
-            p.get("name", ""),
+            name,
             p.get("label") or "—",
-            p.get("auth_kind") or "—",
+            auth_kind,
+            creds_str,
             p.get("deeplink_hint") or "",
         )
     return table

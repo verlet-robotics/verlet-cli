@@ -32,7 +32,17 @@ def destinations_group() -> None:
 
 
 def _require_auth(ctx: click.Context) -> str:
-    """Resolve the active profile, failing fast (pre-HTTP) if none is configured."""
+    """Resolve the active profile, failing fast (pre-HTTP, pre-prompt) if
+    none is configured or the configured token has already expired.
+
+    The expiry check is hoisted here (instead of relying solely on the
+    AuthenticatedClient ctor check) so ``destinations add`` doesn't make
+    a user type three secrets at the credential prompts before learning
+    their session is dead.
+    """
+    from verlet.auth.expiry import is_profile_expired, refresh_command
+    from verlet.auth.credentials import get_profile
+
     profile_name = resolve_profile_name(
         ctx.obj.get("profile") if ctx.obj else None
     )
@@ -41,6 +51,12 @@ def _require_auth(ctx: click.Context) -> str:
     except ProfileNotFoundError:
         raise click.ClickException(
             "Not authenticated. Run `verlet auth login` to manage destinations."
+        )
+    profile = get_profile(profile_name) or {}
+    if profile.get("kind") != "device_flow" and is_profile_expired(profile):
+        raise click.ClickException(
+            f"Your {profile.get('kind', 'token')} has expired. "
+            f"Refresh with `{refresh_command(profile)}`."
         )
     return profile_name
 
@@ -90,9 +106,17 @@ def _gather_manual_credentials(
     """Collect a manual provider's credentials dict.
 
     Priority: ``--credential KEY=VALUE`` pairs > ``--credentials-json`` file >
-    interactive prompts driven by the provider's ``manual_fields`` (when the
-    server advertises them). If none of those yield credentials, error.
+    interactive prompts driven by ``provider_info.manual_fields`` (server-
+    advertised) or the CLI's per-provider static fallback in
+    ``_fields.FALLBACK_FIELDS`` (used while the backend still returns
+    ``manual_fields=null``). GCS is JSON-only and short-circuits to a
+    pointer at ``--credentials-json``.
     """
+    from verlet.destinations._fields import (
+        FALLBACK_FIELDS,
+        JSON_ONLY,
+        fallback_summary,
+    )
     from verlet.destinations._validation import parse_credential_pairs
 
     if credential_pairs:
@@ -109,7 +133,22 @@ def _gather_manual_credentials(
                 "--credentials-json must contain a JSON object."
             )
         return data
+
+    provider_name = provider_info.get("name", "")
+    # Backend-advertised manual_fields win; otherwise fall back to the CLI's
+    # static knowledge of each adapter's credential shape.
     manual_fields = provider_info.get("manual_fields")
+    if not manual_fields:
+        fallback = FALLBACK_FIELDS.get(provider_name)
+        if fallback == JSON_ONLY:
+            raise click.UsageError(
+                f"'{provider_name}' takes a service-account JSON document, "
+                "not key=value pairs. Pass --credentials-json /path/to/sa.json "
+                "(use '-' to read from stdin)."
+            )
+        if isinstance(fallback, list):
+            manual_fields = fallback
+
     if manual_fields:
         creds: dict[str, str] = {}
         for field in manual_fields:
@@ -119,9 +158,12 @@ def _gather_manual_credentials(
             label = field.get("label") or key
             creds[key] = click.prompt(label, hide_input=bool(field.get("secret")))
         return creds
+
+    hint = fallback_summary(provider_name)
+    extra = f" (e.g. {hint})" if hint else ""
     raise click.UsageError(
         "This provider needs credentials. Pass --credential KEY=VALUE "
-        "(repeatable) or --credentials-json <file>."
+        f"(repeatable) or --credentials-json <file>{extra}."
     )
 
 
@@ -167,17 +209,42 @@ def add(
     no_browser: bool,
     no_test: bool,
 ) -> None:
-    """Add a cloud destination. The connect flow depends on the provider.
+    """Add a cloud destination.
+
+    The connect flow is selected per-provider by the server. For every
+    provider configured as ``manual`` (today: all four), credentials are
+    entered directly — interactive prompts when no ``--credential`` /
+    ``--credentials-json`` is given, or non-interactive for CI.
 
     \b
-    Manual providers (paste credentials):
+    Examples (manual mode):
       verlet destinations add r2 --name my-r2 --bucket data \\
         --credential account_id=abc --credential access_key_id=... \\
         --credential secret_access_key=...
 
     \b
-    AWS S3 (CloudFormation deeplink — opens a browser):
-      verlet destinations add aws_s3 --name my-s3 --bucket my-bucket
+      # AWS S3 — access keys (manual mode)
+      verlet destinations add aws_s3 --name my-s3 --bucket data \\
+        --credential access_key_id=... --credential secret_access_key=...
+
+    \b
+      # GCS — paste a service-account JSON document
+      verlet destinations add gcs --name my-gcs --bucket data \\
+        --credentials-json /path/to/service-account.json
+
+    \b
+      # HuggingFace — single token
+      verlet destinations add huggingface --name my-hf --bucket org/dataset \\
+        --credential token=hf_...
+
+    \b
+    Server-managed flows (auto-selected when the backend advertises them):
+
+      * AWS S3 deeplink — opens a CloudFormation quick-create URL and
+        prompts for the resulting RoleArn. Triggered when the server's
+        AWS trust-account is configured.
+      * OAuth (GCS / HuggingFace) — currently deferred from the CLI; use
+        the Verlet web app's Destinations page instead.
     """
     from verlet.destinations._api import fetch_providers, test_connection
     from verlet.destinations._connect import (

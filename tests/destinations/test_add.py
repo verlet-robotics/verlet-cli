@@ -151,21 +151,139 @@ def test_add_manual_no_test_skips_connection_test(tmp_home, cli_runner, respx_mo
     assert not test.called
 
 
-def test_add_manual_no_credentials_exits_2(tmp_home, cli_runner, respx_mock):
-    """A manual provider with no creds + no manual_fields → UsageError, no create."""
+def test_add_manual_falls_back_to_static_field_prompts(
+    tmp_home, cli_runner, respx_mock
+):
+    """When the server returns ``manual_fields=null`` and the user passes no
+    flag-based creds, the CLI's per-provider static fallback drives
+    interactive prompts so ``add`` is usable today. R2's three keys
+    (account_id, access_key_id, secret_access_key) are prompted in order;
+    the resulting credentials dict carries the right keys.
+    """
     _seed()
     respx_mock.get(PROVIDERS_URL).mock(
         return_value=httpx.Response(200, json=[_provider("r2", "manual")])
     )
     create = respx_mock.post(BASE).mock(
-        return_value=httpx.Response(201, json=_dest("x", "r2", "manual"))
+        return_value=httpx.Response(201, json=_dest("my-r2", "r2", "manual"))
     )
 
     result = cli_runner.invoke(
-        cli, ["destinations", "add", "r2", "--name", "x", "--bucket", "b"]
+        cli,
+        [
+            "destinations", "add", "r2",
+            "--name", "my-r2", "--bucket", "data", "--no-test",
+        ],
+        input="acct-1\nkey-1\nsecret-1\n",
+    )
+    assert result.exit_code == 0, (result.output, result.stderr)
+    assert create.called
+    import json as _json
+    sent = _json.loads(create.calls.last.request.read())
+    assert sent["credentials"] == {
+        "account_id": "acct-1",
+        "access_key_id": "key-1",
+        "secret_access_key": "secret-1",
+    }
+
+
+def test_add_gcs_without_credentials_json_errors_with_pointer(
+    tmp_home, cli_runner, respx_mock
+):
+    """GCS is JSON-only (a service-account document). With no
+    ``--credentials-json`` and no ``--credential``, ``add`` must NOT fall
+    into a per-field prompt loop — it must fail fast with a pointer at
+    ``--credentials-json`` so the user doesn't try to type a multi-line
+    JSON blob into a prompt.
+    """
+    _seed()
+    respx_mock.get(PROVIDERS_URL).mock(
+        return_value=httpx.Response(200, json=[_provider("gcs", "manual")])
+    )
+    create = respx_mock.post(BASE).mock(
+        return_value=httpx.Response(201, json=_dest("g", "gcs", "manual"))
+    )
+
+    result = cli_runner.invoke(
+        cli, ["destinations", "add", "gcs", "--name", "g", "--bucket", "b"]
     )
     assert result.exit_code == 2, (result.output, result.stderr)
     assert not create.called
+    out = result.output + (result.stderr or "")
+    assert "--credentials-json" in out
+    assert "service-account" in out.lower()
+
+
+def test_add_huggingface_prompts_for_token(tmp_home, cli_runner, respx_mock):
+    """Single-field providers (HF token) still flow through the prompt path."""
+    _seed()
+    respx_mock.get(PROVIDERS_URL).mock(
+        return_value=httpx.Response(
+            200, json=[_provider("huggingface", "manual")]
+        )
+    )
+    create = respx_mock.post(BASE).mock(
+        return_value=httpx.Response(
+            201, json=_dest("my-hf", "huggingface", "manual")
+        )
+    )
+
+    result = cli_runner.invoke(
+        cli,
+        [
+            "destinations", "add", "huggingface",
+            "--name", "my-hf", "--bucket", "org/ds", "--no-test",
+        ],
+        input="hf_TOKEN\n",
+    )
+    assert result.exit_code == 0, (result.output, result.stderr)
+    import json as _json
+    sent = _json.loads(create.calls.last.request.read())
+    assert sent["credentials"] == {"token": "hf_TOKEN"}
+
+
+def test_add_server_manual_fields_win_over_static_fallback(
+    tmp_home, cli_runner, respx_mock
+):
+    """When the backend DOES advertise ``manual_fields``, it drives the
+    prompts — the static fallback is a backstop, not an override. This
+    guards against drift the day the backend starts populating the field.
+    """
+    _seed()
+    custom_fields = [
+        {"key": "custom_key", "label": "Custom Key", "secret": False},
+    ]
+    respx_mock.get(PROVIDERS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "name": "r2",
+                    "label": "Cloudflare R2",
+                    "auth_kind": "manual",
+                    "manual_fields": custom_fields,
+                    "deeplink_hint": None,
+                }
+            ],
+        )
+    )
+    create = respx_mock.post(BASE).mock(
+        return_value=httpx.Response(201, json=_dest("my-r2", "r2", "manual"))
+    )
+
+    result = cli_runner.invoke(
+        cli,
+        [
+            "destinations", "add", "r2",
+            "--name", "my-r2", "--bucket", "data", "--no-test",
+        ],
+        input="value-1\n",
+    )
+    assert result.exit_code == 0, (result.output, result.stderr)
+    import json as _json
+    sent = _json.loads(create.calls.last.request.read())
+    # Only ``custom_key`` is prompted — NOT R2's static account_id/etc.
+    assert sent["credentials"] == {"custom_key": "value-1"}
 
 
 # --------------------------------------------------------------------------
