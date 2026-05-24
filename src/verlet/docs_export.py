@@ -248,18 +248,21 @@ def _yaml_scalar(s: str) -> str:
 
 
 def _mdx_escape_prose(text: str) -> str:
-    """Escape ``<`` outside of code spans / fences so MDX renders it literally.
+    """Escape MDX-significant chars (``<``, ``{``) outside code spans / fences.
 
     MDX 3 parses ``<letter``, ``<digit``, ``</``, and ``<!`` as the start of a
-    JSX/HTML tag. Click ``help=`` text and ``epilog=`` text routinely carry
-    placeholder tokens like ``<slug>``, ``<bundle_uuid>``, ``<name-or-id>``,
-    and prose like ``<24h old`` that trip the parser. Backslash-escaping the
-    ``<`` (``\\<``) keeps the literal character in the rendered page without
-    requiring authors to remember MDX rules.
+    JSX/HTML tag, and ``{...}`` as a JSX expression that resolves identifiers
+    against the module scope. Click ``help=`` text and ``epilog=`` text
+    routinely carry placeholder tokens like ``<slug>``, ``<bundle_uuid>``,
+    ``{output}/{slug}/``, and prose like ``<24h old`` that trip both parsers.
+    The ``{output}`` case is what breaks the docs build with
+    ``ReferenceError: output is not defined`` at prerender time. Backslash-
+    escaping (``\\<``, ``\\{``) keeps the literal characters in the rendered
+    page without requiring authors to remember MDX rules.
 
     Content inside fenced code blocks (```` ``` ```` / ``~~~``) and inline
-    code spans (`` ` ``) is passed through untouched — MDX does not parse
-    code spans as JSX.
+    code spans (`` ` ``..`` `` ``..) is passed through untouched — MDX does
+    not parse code spans as JSX.
     """
     out: list[str] = []
     in_fence = False
@@ -277,19 +280,51 @@ def _mdx_escape_prose(text: str) -> str:
 
 
 def _escape_prose_line(line: str) -> str:
-    """Per-character pass: escape ``<`` outside of backtick inline-code spans."""
-    chars: list[str] = []
-    in_code = False
-    for ch in line:
+    """Escape ``<`` and ``{`` outside of inline code spans.
+
+    Handles single-backtick and multi-backtick inline code spans per
+    CommonMark: an opening run of N backticks is closed by the next run of
+    exactly N backticks. Inside such a span MDX does not parse JSX, so
+    placeholders like ``<slug>`` and ``{id}`` stay literal without escaping.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
         if ch == "`":
-            in_code = not in_code
-            chars.append(ch)
+            j = i
+            while j < n and line[j] == "`":
+                j += 1
+            run_len = j - i
+            k = j
+            matched = False
+            while k < n:
+                if line[k] != "`":
+                    k += 1
+                    continue
+                m = k
+                while m < n and line[m] == "`":
+                    m += 1
+                if m - k == run_len:
+                    out.append(line[i:m])
+                    i = m
+                    matched = True
+                    break
+                k = m
+            if matched:
+                continue
+            out.append(line[i:j])
+            i = j
             continue
-        if ch == "<" and not in_code:
-            chars.append("\\<")
-            continue
-        chars.append(ch)
-    return "".join(chars)
+        if ch == "<":
+            out.append("\\<")
+        elif ch == "{":
+            out.append("\\{")
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _extract_footer(path: Path) -> str:

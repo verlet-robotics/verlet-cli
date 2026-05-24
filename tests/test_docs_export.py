@@ -273,6 +273,23 @@ def test_mdx_escape_prose_escapes_angle_brackets_outside_code():
     assert "<slug>" not in out.replace("\\<slug>", "")  # only escaped form remains
 
 
+def test_mdx_escape_prose_escapes_curly_braces_outside_code():
+    """`{expr}` in prose becomes `\\{expr}` so MDX doesn't try to resolve it as JSX."""
+    src = "Output directory (per-dataset subdir rooted at {output}/{slug}/)."
+    out = _mdx_escape_prose(src)
+    assert "\\{output}" in out
+    assert "\\{slug}" in out
+    assert "{output}" not in out.replace("\\{output}", "")
+
+
+def test_mdx_escape_prose_preserves_curly_braces_in_inline_code():
+    """`{id}` inside a code span stays literal — MDX doesn't parse JSX inside code."""
+    src = "The CLI polls ``/downloads/jobs/{id}`` until ready."
+    out = _mdx_escape_prose(src)
+    assert "``/downloads/jobs/{id}``" in out, "code-span `{id}` must not be escaped"
+    assert "\\{" not in out
+
+
 def test_mdx_escape_prose_preserves_inline_code_spans():
     """Backticked `<slug>` stays as-is; only prose `<x>` gets escaped."""
     src = "Pass `<slug>` to download; the URL looks like <https://verlet.co>."
@@ -289,17 +306,56 @@ def test_mdx_escape_prose_preserves_fenced_code_blocks():
     assert "\\<state>" in out
 
 
-def test_generated_mdx_has_no_bare_left_angle_in_prose(tmp_path):
-    """End-to-end: no MDX in the live export has an un-escaped prose `<`."""
+def _bare_jsx_chars_in_prose(line: str) -> list[tuple[int, str]]:
+    """Return positions of unescaped JSX-significant chars (``<``, ``{``) in prose.
+
+    Handles single-backtick and multi-backtick inline code spans (CommonMark:
+    opening run of N backticks closes on next run of exactly N backticks). A
+    character inside a span is not flagged.
+    """
+    hits: list[tuple[int, str]] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if ch == "`":
+            j = i
+            while j < n and line[j] == "`":
+                j += 1
+            run_len = j - i
+            k = j
+            matched = False
+            while k < n:
+                if line[k] != "`":
+                    k += 1
+                    continue
+                m = k
+                while m < n and line[m] == "`":
+                    m += 1
+                if m - k == run_len:
+                    i = m
+                    matched = True
+                    break
+                k = m
+            if matched:
+                continue
+            i = j
+            continue
+        if ch in ("<", "{") and (i == 0 or line[i - 1] != "\\"):
+            hits.append((i, ch))
+        i += 1
+    return hits
+
+
+def test_generated_mdx_has_no_bare_jsx_triggers_in_prose(tmp_path):
+    """End-to-end: no MDX in the live export has an un-escaped prose ``<`` or ``{``."""
     out = _run_export(tmp_path)
-    offenders: list[tuple[Path, int, str]] = []
+    offenders: list[tuple[Path, int, str, str]] = []
     for path in out.rglob("*.mdx"):
         in_fence = False
         in_frontmatter = False
         frontmatter_close_seen = False
         for i, line in enumerate(path.read_text().splitlines(), start=1):
-            # Frontmatter (between the first two `---` lines) is YAML, not MDX
-            # — `<x>` inside a quoted scalar is fine, so skip it.
             if line == "---":
                 if not in_frontmatter and not frontmatter_close_seen:
                     in_frontmatter = True
@@ -315,22 +371,12 @@ def test_generated_mdx_has_no_bare_left_angle_in_prose(tmp_path):
                 continue
             if in_fence:
                 continue
-            # Walk the line; flag any `<` that's outside a backtick span and
-            # not preceded by a backslash.
-            in_code = False
-            for j, ch in enumerate(line):
-                if ch == "`":
-                    in_code = not in_code
-                if (
-                    ch == "<"
-                    and not in_code
-                    and (j == 0 or line[j - 1] != "\\")
-                ):
-                    offenders.append((path.relative_to(out), i, line))
-                    break
+            for _pos, ch in _bare_jsx_chars_in_prose(line):
+                offenders.append((path.relative_to(out), i, ch, line))
+                break
     assert not offenders, (
-        "Un-escaped `<` in generated MDX prose breaks the Fumadocs build:\n"
-        + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in offenders[:10])
+        "Un-escaped JSX-significant char in generated MDX prose breaks the Fumadocs build:\n"
+        + "\n".join(f"  {p}:{n}: [{c}] {ln}" for p, n, c, ln in offenders[:10])
     )
 
 
