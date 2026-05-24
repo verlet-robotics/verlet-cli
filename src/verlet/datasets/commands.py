@@ -285,7 +285,9 @@ def _showcase_download(
         )
 
     detail = asyncio.run(fetch_showcase_detail(profile_name, slug))
-    if resolve_modality(detail) == "ego" and not variant:
+    modality = resolve_modality(detail)
+    unit_word = "segments" if modality == "ego" else "episodes"
+    if modality == "ego" and not variant:
         grants = detail.get("effective_grants") or []
         granted_variants = sorted(
             {g.get("variant") for g in grants if g.get("variant")}
@@ -314,10 +316,11 @@ def _showcase_download(
         console.print(
             f"[yellow]Warning:[/yellow] grant quota covers only "
             f"[bold]{truncated['served_units']}[/bold] of "
-            f"[bold]{truncated['total_eligible_units']}[/bold] units "
+            f"[bold]{truncated['total_eligible_units']}[/bold] {unit_word} "
             f"in '{slug}'. Downloading the first "
-            f"{truncated['served_units']} — contact your Verlet rep to "
-            "raise the cap if you need the rest."
+            f"{truncated['served_units']} — contact "
+            "[bold]founders@verlet.co[/bold] to raise the cap if you "
+            "need the rest."
         )
     output_root = Path(output) / manifest["dataset_slug"]
     items = plan_items(manifest["dataset_slug"], Path(output), manifest)
@@ -349,6 +352,16 @@ def _showcase_download(
     if result.failed:
         summary_parts.append(f"[red]{result.failed} failed[/red]")
     console.print(f"\n{', '.join(summary_parts)} -> {output_root}")
+    if truncated and result.failed == 0:
+        # Repeat the truncation context after the summary so the call to
+        # action is the last thing on screen, not lost above the progress
+        # bar. Phrased as past-tense to match the state the user is in.
+        console.print(
+            f"[yellow]Downloaded {truncated['served_units']} of "
+            f"{truncated['total_eligible_units']} {unit_word}[/yellow] "
+            f"granted by your access code — contact "
+            f"[bold]founders@verlet.co[/bold] for full access to '{slug}'."
+        )
     if result.failed > 0:
         raise SystemExit(1)
 
