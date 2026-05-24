@@ -330,7 +330,6 @@ jobs:
       - name: Mirror CHANGELOG (preserve milestone footer link)
         working-directory: verlet-server/teleop-manager/frontend/docs
         run: |
-          mkdir -p content/docs/changelog
           # Path traversal: working-directory is verlet-server/teleop-manager/frontend/docs/.
           # Ascending FOUR `..` segments lands at $GITHUB_WORKSPACE
           # (docs → frontend → teleop-manager → verlet-server → workspace-root),
@@ -338,43 +337,16 @@ jobs:
           # five `..` would escape $GITHUB_WORKSPACE entirely and ENOENT at
           # runtime on the first real release.
           #
-          # 35-07-SUMMARY.md "Issues Encountered" — the seeded changelog
-          # carries a footer link to /docs/milestones/v2.2 separated by an
-          # `---` rule. Plan 35-10's overwrite must preserve it. We extract
-          # the footer block (everything from the trailing `---` rule
-          # onwards) BEFORE rewriting the file, then re-append it after the
-          # mirror so the milestone link survives release-bot regenerations.
-          FOOTER_FILE="$(mktemp)"
-          if [ -f content/docs/changelog/index.mdx ]; then
-            # Find last `---` separator that introduces the footer (after the
-            # frontmatter close). awk picks the LAST `---`-on-its-own line
-            # and prints from there to EOF.
-            awk '
-              /^---$/ { last=NR; lines[NR]=$0; next }
-              { lines[NR]=$0 }
-              END {
-                if (last > 3) {
-                  for (i=last; i<=NR; i++) print lines[i]
-                }
-              }
-            ' content/docs/changelog/index.mdx > "$FOOTER_FILE"
-          fi
-          {
-            echo '---'
-            echo 'title: Changelog'
-            echo 'description: Notable changes to the verlet CLI, mirrored from verlet-cli/CHANGELOG.md.'
-            echo '---'
-            echo
-            echo '> Auto-refreshed from `verlet-cli/CHANGELOG.md` on every release.'
-            echo '> Edit the source file in verlet-cli, not this page.'
-            echo
-            cat ../../../../verlet-cli/CHANGELOG.md
-            if [ -s "$FOOTER_FILE" ]; then
-              echo
-              cat "$FOOTER_FILE"
-            fi
-          } > content/docs/changelog/index.mdx
-          rm -f "$FOOTER_FILE"
+          # 35-07 follow-up: the inline awk block previously here had two
+          # latent bugs (treated the closing frontmatter `---` as a "footer"
+          # rule, and mirrored raw CHANGELOG.md content without escaping
+          # angle-bracket placeholders that MDX 3 parses as JSX). The mirror
+          # logic moved into `verlet docs mirror-changelog` so future MDX
+          # rules stay in one place with tests around them.
+          mkdir -p content/docs/changelog
+          verlet docs mirror-changelog \
+            --in ../../../../verlet-cli/CHANGELOG.md \
+            --out content/docs/changelog/index.mdx
 
       - name: Open / supersede docs PR
         working-directory: verlet-server

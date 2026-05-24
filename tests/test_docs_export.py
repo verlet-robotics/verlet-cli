@@ -7,6 +7,10 @@ Bash code blocks in command epilogs are normalized to ``bash recipe`` so the
 Plan 30-13 recipe-CI walker can pick them up.
 
 Task 2 adds further tests for production-command epilogs in this same file.
+
+MDX-safety section (bottom) covers the YAML / angle-bracket escape pass that
+keeps the Fumadocs build green when Click ``help=`` / ``epilog=`` strings
+contain colons or ``<placeholder>`` tokens.
 """
 from __future__ import annotations
 
@@ -15,6 +19,11 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from verlet.cli import cli
+from verlet.docs_export import (
+    _extract_footer,
+    _mdx_escape_prose,
+    _yaml_scalar,
+)
 
 
 def _run_export(tmp_path: Path) -> Path:
@@ -210,3 +219,214 @@ def test_at_least_six_commands_have_recipe_markers(tmp_path):
         f"only {len(files_with_recipe)} commands with bash recipe blocks: "
         f"{files_with_recipe}"
     )
+
+
+# ---------------------------------------------------------------------------
+# MDX-safety tests — frontmatter YAML quoting + angle-bracket escape.
+#
+# These guard against the May 2026 docs deploy failure where Fumadocs' MDX 3
+# parser broke on (a) unquoted colons in `description:` and (b) `<word>` /
+# `<digit>` placeholders in Click help / epilog text. The escape pass is
+# tested at unit level (the helpers) and end-to-end (the generated MDX).
+# ---------------------------------------------------------------------------
+
+
+def test_yaml_scalar_quotes_colons():
+    """Description with a colon must round-trip through YAML cleanly."""
+    s = _yaml_scalar("Show bundle detail: included datasets, license, citation.")
+    assert s.startswith("'") and s.endswith("'")
+    assert ": included" in s
+    # The internal text must NOT contain an unescaped sequence that yaml would
+    # parse as a key:value mapping at the top level.
+
+
+def test_yaml_scalar_doubles_embedded_single_quotes():
+    """`'` inside a single-quoted scalar is escaped as `''`."""
+    assert _yaml_scalar("don't") == "'don''t'"
+
+
+def test_yaml_frontmatter_parses_with_pyyaml(tmp_path):
+    """Every generated frontmatter block parses as valid YAML."""
+    yaml = __import__("yaml")
+    out = _run_export(tmp_path)
+    for path in out.rglob("*.mdx"):
+        text = path.read_text()
+        # Frontmatter is everything between the first two `---` lines.
+        assert text.startswith("---\n"), path
+        end = text.index("\n---\n", 4)
+        block = text[4:end]
+        parsed = yaml.safe_load(block)
+        assert isinstance(parsed, dict), f"{path}: {parsed!r}"
+        assert "title" in parsed and "description" in parsed, path
+        # Description must be a string scalar, not a nested mapping introduced
+        # by an unquoted colon.
+        assert isinstance(parsed["description"], str), path
+
+
+def test_mdx_escape_prose_escapes_angle_brackets_outside_code():
+    """`<word>` / `<digit>` in prose becomes `\\<...>`; backslash-`<` renders literally."""
+    src = "Use <slug> or <bundle_uuid> after waiting <24h."
+    out = _mdx_escape_prose(src)
+    assert "\\<slug>" in out
+    assert "\\<bundle_uuid>" in out
+    assert "\\<24h" in out
+    assert "<slug>" not in out.replace("\\<slug>", "")  # only escaped form remains
+
+
+def test_mdx_escape_prose_preserves_inline_code_spans():
+    """Backticked `<slug>` stays as-is; only prose `<x>` gets escaped."""
+    src = "Pass `<slug>` to download; the URL looks like <https://verlet.co>."
+    out = _mdx_escape_prose(src)
+    assert "`<slug>`" in out, "inline code span must not be escaped"
+    assert "\\<https://verlet.co>" in out
+
+
+def test_mdx_escape_prose_preserves_fenced_code_blocks():
+    """Inside ```` ``` ```` fences, `<x>` is left alone."""
+    src = "Run this:\n```bash\nverlet datasets info <slug>\n```\nThen check <state>."
+    out = _mdx_escape_prose(src)
+    assert "verlet datasets info <slug>" in out, "fence content must not be escaped"
+    assert "\\<state>" in out
+
+
+def test_generated_mdx_has_no_bare_left_angle_in_prose(tmp_path):
+    """End-to-end: no MDX in the live export has an un-escaped prose `<`."""
+    out = _run_export(tmp_path)
+    offenders: list[tuple[Path, int, str]] = []
+    for path in out.rglob("*.mdx"):
+        in_fence = False
+        in_frontmatter = False
+        frontmatter_close_seen = False
+        for i, line in enumerate(path.read_text().splitlines(), start=1):
+            # Frontmatter (between the first two `---` lines) is YAML, not MDX
+            # — `<x>` inside a quoted scalar is fine, so skip it.
+            if line == "---":
+                if not in_frontmatter and not frontmatter_close_seen:
+                    in_frontmatter = True
+                elif in_frontmatter:
+                    in_frontmatter = False
+                    frontmatter_close_seen = True
+                continue
+            if in_frontmatter:
+                continue
+            stripped = line.lstrip()
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            # Walk the line; flag any `<` that's outside a backtick span and
+            # not preceded by a backslash.
+            in_code = False
+            for j, ch in enumerate(line):
+                if ch == "`":
+                    in_code = not in_code
+                if (
+                    ch == "<"
+                    and not in_code
+                    and (j == 0 or line[j - 1] != "\\")
+                ):
+                    offenders.append((path.relative_to(out), i, line))
+                    break
+    assert not offenders, (
+        "Un-escaped `<` in generated MDX prose breaks the Fumadocs build:\n"
+        + "\n".join(f"  {p}:{n}: {ln}" for p, n, ln in offenders[:10])
+    )
+
+
+# ---------------------------------------------------------------------------
+# mirror_changelog tests.
+# ---------------------------------------------------------------------------
+
+
+def _run_mirror(tmp_path: Path, changelog_text: str) -> Path:
+    src = tmp_path / "CHANGELOG.md"
+    dst = tmp_path / "out" / "changelog" / "index.mdx"
+    src.write_text(changelog_text)
+    result = CliRunner().invoke(
+        cli,
+        ["docs", "mirror-changelog", "--in", str(src), "--out", str(dst)],
+    )
+    assert result.exit_code == 0, result.output + (result.stderr or "")
+    return dst
+
+
+def test_mirror_changelog_writes_valid_frontmatter(tmp_path):
+    """Output starts with a YAML frontmatter parseable to title+description."""
+    yaml = __import__("yaml")
+    dst = _run_mirror(tmp_path, "## 0.1.0\n\n- Initial release.\n")
+    text = dst.read_text()
+    assert text.startswith("---\n")
+    end = text.index("\n---\n", 4)
+    parsed = yaml.safe_load(text[4:end])
+    assert parsed["title"] == "Changelog"
+    assert isinstance(parsed["description"], str)
+
+
+def test_mirror_changelog_escapes_angle_brackets(tmp_path):
+    """Bare `<24h` and `<slug>` in CHANGELOG prose are MDX-escaped."""
+    src = (
+        "## 0.8.6\n\n"
+        "- Every just-tagged version is <24h old by definition.\n"
+        "- `verlet datasets info <slug>` was leaking grants.\n"
+    )
+    dst = _run_mirror(tmp_path, src)
+    text = dst.read_text()
+    assert "\\<24h" in text, "prose `<24h` must be escaped"
+    assert "`verlet datasets info <slug>`" in text, "code-span `<slug>` stays literal"
+
+
+def test_mirror_changelog_preserves_footer_on_overwrite(tmp_path):
+    """Trailing `---` rule + footer body survive a second-pass overwrite."""
+    src = tmp_path / "CHANGELOG.md"
+    dst = tmp_path / "out" / "changelog" / "index.mdx"
+    dst.parent.mkdir(parents=True)
+    # Seed an existing MDX with a footer block past the body.
+    dst.write_text(
+        "---\n"
+        "title: Changelog\n"
+        "description: 'old'\n"
+        "---\n"
+        "\n"
+        "## 0.1.0\n\n- Initial.\n"
+        "\n---\n\n"
+        "See [milestones/v2.2](/docs/milestones/v2.2) for context.\n"
+    )
+    src.write_text("## 0.2.0\n\n- New release.\n")
+    result = CliRunner().invoke(
+        cli,
+        ["docs", "mirror-changelog", "--in", str(src), "--out", str(dst)],
+    )
+    assert result.exit_code == 0, result.output
+    text = dst.read_text()
+    assert "## 0.2.0" in text, "new changelog body must be present"
+    assert "milestones/v2.2" in text, "footer link must be preserved"
+    # And the footer must come AFTER the body, not BEFORE.
+    assert text.index("## 0.2.0") < text.index("milestones/v2.2")
+
+
+def test_mirror_changelog_no_footer_when_none_existed(tmp_path):
+    """If the existing file (or no file) has no body `---` rule, no footer is added."""
+    # Pre-existing file without a footer rule:
+    src = tmp_path / "CHANGELOG.md"
+    dst = tmp_path / "out" / "changelog" / "index.mdx"
+    dst.parent.mkdir(parents=True)
+    dst.write_text(
+        "---\ntitle: Changelog\ndescription: 'old'\n---\n\n## 0.1.0\n\n- Initial.\n"
+    )
+    src.write_text("## 0.2.0\n\n- New release.\n")
+    result = CliRunner().invoke(
+        cli,
+        ["docs", "mirror-changelog", "--in", str(src), "--out", str(dst)],
+    )
+    assert result.exit_code == 0, result.output
+    text = dst.read_text()
+    # The only `---` lines must be the frontmatter open/close — no third one.
+    assert text.count("\n---\n") == 1
+
+
+def test_extract_footer_skips_frontmatter_closing_rule(tmp_path):
+    """The closing `---` of frontmatter must NOT be treated as a footer rule."""
+    p = tmp_path / "f.mdx"
+    p.write_text("---\ntitle: x\ndescription: 'y'\n---\n\nbody only, no footer.\n")
+    assert _extract_footer(p) == ""
