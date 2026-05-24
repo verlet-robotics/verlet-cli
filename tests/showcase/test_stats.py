@@ -15,7 +15,7 @@ _STATS = {
     "rigs_deployed": 42,
     "ego_rigs_deployed": 18,
     "teleop_rigs_deployed": 24,
-    "active_operators_24h": 31,
+    "active_operators_7d": 31,
     "total_episodes_7d": 5400,
     "total_duration_secs_7d": 360000,
     "qc_pass_rate_7d": 0.964,

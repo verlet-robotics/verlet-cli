@@ -23,7 +23,7 @@ def operation_stats_view(body: dict[str, Any]) -> Table:
         f"{body.get('teleop_rigs_deployed') or 0}",
     )
     table.add_row(
-        "active operators (24h)", str(body.get("active_operators_24h") or 0)
+        "active operators (7d)", str(body.get("active_operators_7d") or 0)
     )
     table.add_row("episodes (7d)", str(body.get("total_episodes_7d") or 0))
 
