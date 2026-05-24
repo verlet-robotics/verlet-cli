@@ -304,6 +304,21 @@ def _showcase_download(
     manifest = asyncio.run(
         fetch_showcase_download(profile_name, slug, variant=variant, scope=scope)
     )
+    truncated = manifest.get("truncated")
+    if truncated:
+        # The grant's remaining quota was smaller than the dataset's
+        # eligible unit count, so the backend served the first N units
+        # in stable order. Surface that *before* the download starts so
+        # the user knows their pull is short by design (not by network
+        # error) and what their next step is.
+        console.print(
+            f"[yellow]Warning:[/yellow] grant quota covers only "
+            f"[bold]{truncated['served_units']}[/bold] of "
+            f"[bold]{truncated['total_eligible_units']}[/bold] units "
+            f"in '{slug}'. Downloading the first "
+            f"{truncated['served_units']} — contact your Verlet rep to "
+            "raise the cap if you need the rest."
+        )
     output_root = Path(output) / manifest["dataset_slug"]
     items = plan_items(manifest["dataset_slug"], Path(output), manifest)
 
