@@ -7,6 +7,16 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Docs site no longer breaks on `<placeholder>` tokens or colons in Click
+  help strings.** `verlet docs export` now YAML-quotes the frontmatter
+  `description` field and backslash-escapes `<word>` / `<digit>` in body
+  prose and option-help cells, so Fumadocs / MDX 3 doesn't try to parse
+  them as JSX tag openers. Mirrors the same escape pass into a new
+  `verlet docs mirror-changelog` subcommand (used by the release workflow)
+  so the changelog page survives raw CHANGELOG content like `<24h old`.
+
 ## [0.10.2] — 2026-05-23
 
 A tiny render fix paired with a backend change shipping the same day.

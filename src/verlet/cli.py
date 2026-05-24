@@ -101,9 +101,10 @@ def docs_group() -> None:
     """Documentation utilities (maintainer)."""
 
 
-from verlet.docs_export import docs_export  # noqa: E402
+from verlet.docs_export import docs_export, mirror_changelog  # noqa: E402
 
 docs_group.add_command(docs_export)
+docs_group.add_command(mirror_changelog)
 
 
 # Register subcommand groups
