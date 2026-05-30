@@ -41,22 +41,28 @@ def showcase_login(
     api_url: str,
     profile_name: str,
     access_code: str | None = None,
+    email: str | None = None,
 ) -> dict:
     """Run the legacy showcase access-code flow and persist the result.
 
-    ``access_code`` is prompted hidden when not provided. Returns
-    ``{"profile": <name>, "customer_name": <str>}`` on success. Raises
-    ``SystemExit(1)`` on auth failure (invalid / expired access code) or
-    when the server response is malformed.
+    ``access_code`` is prompted hidden when not provided. ``email`` is
+    prompted (visible) when not provided and is required by the server —
+    it attributes every download to the individual using the (possibly
+    shared) access code. Returns ``{"profile": <name>, "customer_name":
+    <str>}`` on success. Raises ``SystemExit(1)`` on auth failure (invalid
+    / expired access code, missing/invalid email) or when the server
+    response is malformed.
     """
     if access_code is None:
         access_code = click.prompt("Access code", hide_input=True)
+    if email is None:
+        email = click.prompt("Email")
 
     with httpx.Client(timeout=30.0) as http:
         try:
             r = http.post(
                 api_url + SHOWCASE_AUTH_PATH,
-                json={"code": access_code},
+                json={"code": access_code, "email": email},
             )
         except httpx.HTTPError as exc:
             click.echo(f"Network error: {exc}", err=True)
@@ -71,6 +77,24 @@ def showcase_login(
             except Exception:
                 pass
             click.echo(detail, err=True)
+            raise SystemExit(1)
+
+        if r.status_code == 422:
+            # Request-body validation failure — almost always a malformed
+            # or missing email. Pydantic returns detail as a list of errors.
+            msg = "Invalid email address."
+            try:
+                body = r.json()
+                errors = body.get("detail") if isinstance(body, dict) else None
+                if isinstance(errors, list) and errors:
+                    msg = "; ".join(
+                        e.get("msg", "invalid value")
+                        for e in errors
+                        if isinstance(e, dict)
+                    ) or msg
+            except Exception:
+                pass
+            click.echo(msg, err=True)
             raise SystemExit(1)
 
         if r.status_code != 200:
