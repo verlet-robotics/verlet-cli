@@ -7,8 +7,31 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-05-31
+
+Showcase login now collects an email so dataset pulls are attributable to a
+person, plus download quota-truncation warnings. **Pairs with a backend
+change: the showcase `/auth` endpoint now requires an email**, so upgrading
+is required to keep `verlet login --kind showcase` working — older clients
+get an `HTTP 422`.
+
+### Added
+
+- **Email prompt at showcase login.** `verlet login` / `verlet auth login
+  --kind showcase` now prompt for an email (after the access code) and send
+  it to `/auth`. The server requires it, so the email lets a (possibly
+  shared) customer access code be attributed to the individual pulling data.
+  A missing or malformed email surfaces the server's validation message
+  instead of a bare `HTTP 422`.
+- **Quota-truncation warning on downloads.** When a `--scope full` pull is
+  trimmed to a grant's remaining episode quota, the CLI warns before
+  downloading so a short result is explained, and the truncated-grant CTA
+  points to founders@verlet.co.
+
 ### Fixed
 
+- **`active_operators` reflects the 7-day window** in showcase operation
+  stats output (was an unscoped count).
 - **Docs site no longer breaks on `<placeholder>` tokens or colons in Click
   help strings.** `verlet docs export` now YAML-quotes the frontmatter
   `description` field and backslash-escapes `<word>` / `<digit>` in body
