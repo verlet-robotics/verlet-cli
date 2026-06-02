@@ -21,6 +21,19 @@ import respx
 from click.testing import CliRunner
 
 
+@pytest.fixture(autouse=True)
+def _disable_update_check(monkeypatch):
+    """Suppress the proactive update-notice for the whole suite by default.
+
+    Every CLI invocation runs ``notify_if_outdated()`` from the root group;
+    left enabled it would spawn a detached ``python -m verlet.version_check``
+    process (real PyPI hit) on the first run of each isolated home. Tests that
+    exercise the notice explicitly ``monkeypatch.delenv`` this and drive the
+    cache / network themselves.
+    """
+    monkeypatch.setenv("VERLET_NO_UPDATE_CHECK", "1")
+
+
 @pytest.fixture
 def tmp_home(tmp_path, monkeypatch):
     """Redirect ``Path.home()`` and the HOME / USERPROFILE env vars to ``tmp_path``.

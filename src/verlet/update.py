@@ -83,8 +83,45 @@ def _is_no_op_marker(output: str) -> bool:
     )
 
 
+def _report_check_status() -> None:
+    """Synchronous PyPI check for `verlet update --check`.
+
+    Prints current-vs-latest to stdout and refreshes the background-notice
+    cache as a side effect. Never raises; a PyPI outage is reported, not fatal.
+    """
+    from verlet import __version__ as current
+    from verlet.version_check import fetch_latest_version, is_newer, _write_cache, _now
+
+    latest = fetch_latest_version()
+    if latest is None:
+        console.print(
+            f"verlet {current} — could not reach PyPI to check for updates."
+        )
+        return
+
+    # Warm the cache so the passive notice is immediately consistent.
+    try:
+        _write_cache(latest, _now())
+    except Exception:
+        pass
+
+    if is_newer(latest, current):
+        console.print(
+            f"verlet {current} — update available: [green]{latest}[/green]. "
+            "Run `verlet update` to upgrade."
+        )
+    else:
+        console.print(f"verlet {current} is up to date.")
+
+
 @click.command("update")
-def update():
+@click.option(
+    "--check",
+    "check_only",
+    is_flag=True,
+    help="Report whether a newer release exists on PyPI; do not upgrade.",
+)
+def update(check_only: bool):
     """Upgrade verlet to the latest PyPI release using the detected install method.
 
     \b
@@ -92,7 +129,14 @@ def update():
     pipx and homebrew run their respective `upgrade` subcommand.
     uvx prints a notice (uvx fetches latest on each invocation; nothing to do).
     Unknown install method exits 1 with a reinstall hint.
+
+    With --check, query PyPI synchronously and report status without
+    upgrading (also refreshes the background-notice cache).
     """
+    if check_only:
+        _report_check_status()
+        return
+
     method, argv = detect_install_method()
 
     if method == "uvx":

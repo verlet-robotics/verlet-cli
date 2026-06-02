@@ -7,6 +7,28 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-06-02
+
+A proactive "a newer verlet is available" notice, plus a synchronous
+`verlet update --check`. Pairs with a backend change that requires the
+showcase JWT to carry an email before the dataset download endpoint will
+issue a manifest (the email is the one collected at `verlet auth login
+--kind showcase`).
+
+### Added
+
+- **Out-of-date notice.** Any command now prints a one-line upgrade notice to
+  **stderr** when a newer release is on PyPI, so it never corrupts stdout
+  (JSON manifests, pipes). It reads a cached "latest" version and refreshes
+  that cache in a detached background process at most once every 24h, so the
+  check never blocks the foreground command. First run on a fresh machine
+  prints nothing and silently warms the cache. Opt out with `verlet config
+  update-check disable` or `VERLET_NO_UPDATE_CHECK=1`.
+- **`verlet update --check`.** Report whether a newer release exists on PyPI
+  without upgrading (also warms the notice cache).
+- **`verlet config update-check status|enable|disable`.** Manage the
+  automatic notice.
+
 ## [0.11.0] — 2026-05-31
 
 Showcase login now collects an email so dataset pulls are attributable to a

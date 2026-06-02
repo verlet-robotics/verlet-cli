@@ -35,6 +35,18 @@ def cli(ctx: click.Context, profile: str | None) -> None:
 
         sys.stderr.write(f"warning: legacy migration skipped: {exc}\n")
 
+    # Best-effort "a newer verlet is available" notice. Reads a cached latest
+    # version and prints to stderr only; refreshes the cache in the background
+    # when stale. Never blocks, never touches stdout. Skipped for `verlet
+    # update` itself (the user is already upgrading) and fully self-guarded.
+    if ctx.invoked_subcommand != "update":
+        try:
+            from verlet.version_check import notify_if_outdated
+
+            notify_if_outdated()
+        except Exception:  # pragma: no cover — defensive guard
+            pass
+
 
 # ---------------------------------------------------------------------------
 # verlet config telemetry status|enable|disable — CLIDIST-05 / D-DIST1.
@@ -84,6 +96,51 @@ def telemetry_disable_cmd() -> None:
     cfg["telemetry_enabled"] = False
     save_config(cfg)
     click.echo("Telemetry disabled.")
+
+
+# ---------------------------------------------------------------------------
+# verlet config update-check status|enable|disable — CLIDIST-04 (alert half).
+#
+# Opt-out switch for the proactive "a newer verlet is available" notice. The
+# notice is ON by default; this persists ``update_check_enabled`` in
+# ``~/.verlet/config.json``. The env var ``VERLET_NO_UPDATE_CHECK`` overrides
+# this for one-off / CI suppression without touching config.
+# ---------------------------------------------------------------------------
+
+
+@config_group.group("update-check")
+def update_check_cmd() -> None:
+    """Manage the automatic 'newer version available' notice."""
+
+
+@update_check_cmd.command("status")
+def update_check_status() -> None:
+    """Print 'enabled' or 'disabled' (default: enabled)."""
+    from verlet.version_check import check_disabled
+
+    click.echo("disabled" if check_disabled() else "enabled")
+
+
+@update_check_cmd.command("enable")
+def update_check_enable_cmd() -> None:
+    """Opt in (default): show a notice when a newer release is on PyPI."""
+    from verlet.config import load_config, save_config
+
+    cfg = load_config()
+    cfg["update_check_enabled"] = True
+    save_config(cfg)
+    click.echo("Update check enabled.")
+
+
+@update_check_cmd.command("disable")
+def update_check_disable_cmd() -> None:
+    """Opt out: never show the 'newer version available' notice."""
+    from verlet.config import load_config, save_config
+
+    cfg = load_config()
+    cfg["update_check_enabled"] = False
+    save_config(cfg)
+    click.echo("Update check disabled.")
 
 
 # ---------------------------------------------------------------------------

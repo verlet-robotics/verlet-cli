@@ -7,7 +7,7 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 # installs that pick up an unstaged version bump from pyproject.toml), and
 # fall back to the literal so source checkouts without an install still
 # report a real version instead of "0.0.0+unknown".
-__version__: str = "0.6.0"
+__version__: str = "0.12.0"
 
 try:
     __version__ = _pkg_version("verlet")
