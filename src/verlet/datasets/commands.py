@@ -255,6 +255,7 @@ def _showcase_download(
     *,
     variant: str | None,
     scope: str,
+    limit: int | None,
     output: str,
     parallel: int,
     resume: bool,
@@ -304,7 +305,9 @@ def _showcase_download(
             return
 
     manifest = asyncio.run(
-        fetch_showcase_download(profile_name, slug, variant=variant, scope=scope)
+        fetch_showcase_download(
+            profile_name, slug, variant=variant, scope=scope, limit=limit
+        )
     )
     truncated = manifest.get("truncated")
     if truncated:
@@ -385,6 +388,16 @@ def _showcase_download(
     help="Showcase access codes only: 'samples' = free-sample subset.",
 )
 @click.option(
+    "--limit",
+    type=click.IntRange(min=1),
+    default=None,
+    help=(
+        "Showcase access codes only: download just the first N units "
+        "(episodes for teleop, segments for ego) instead of the whole "
+        "dataset. Charged against quota by the served count."
+    ),
+)
+@click.option(
     "--episode-ids",
     default=None,
     help="CSV of integer episode IDs (arm or ego raw).",
@@ -452,6 +465,7 @@ def datasets_download(
     slug: str,
     variant: str | None,
     scope: str,
+    limit: int | None,
     episode_ids: str | None,
     segment_ids: str | None,
     output: str,
@@ -500,6 +514,7 @@ def datasets_download(
             slug,
             variant=variant,
             scope=scope,
+            limit=limit,
             output=output,
             parallel=parallel,
             resume=resume,
@@ -513,6 +528,14 @@ def datasets_download(
             },
         )
         return
+
+    # --limit is a showcase-only subset control. Platform accounts select
+    # episodes explicitly with --episode-ids / --segment-ids instead.
+    if limit is not None:
+        raise click.UsageError(
+            "--limit is only supported for showcase access codes; platform "
+            "downloads select units with --episode-ids / --segment-ids."
+        )
 
     # 0. --detach requires --format (D-FORMAT1). Foreground native (no --format)
     # is already synchronous + has no server-side job to background — detaching

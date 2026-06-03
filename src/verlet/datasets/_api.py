@@ -537,11 +537,13 @@ async def fetch_showcase_download(
     *,
     variant: str | None = None,
     scope: str = "full",
+    limit: int | None = None,
 ) -> dict:
     """Authenticated. Gated showcase download manifest for one dataset.
 
     The backend derives variant/scope from the grant; ``variant`` is sent
     only when explicitly provided so it can select among multiple grants.
+    ``limit`` caps the manifest to the first N units (episodes/segments).
     404 = no grant / no dataset; 429 = quota exhausted or rate-limited.
     """
     import click
@@ -551,6 +553,8 @@ async def fetch_showcase_download(
         params: dict[str, Any] = {"scope": scope}
         if variant is not None:
             params["variant"] = variant
+        if limit is not None:
+            params["limit"] = limit
         path = SHOWCASE_DOWNLOAD_PATH.format(slug_or_id=slug)
         with friendly_http(f"fetching download manifest for '{slug}'"):
             resp = client.request("GET", path, params=params)

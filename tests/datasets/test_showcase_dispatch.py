@@ -250,6 +250,90 @@ def test_download_showcase_hits_gated_download_endpoint(
     )
 
 
+def test_download_showcase_limit_forwarded_as_query_param(
+    cli_runner, respx_mock, tmp_home
+):
+    """``--limit N`` is sent to the gated download endpoint as ``?limit=N``."""
+    from verlet.cli import cli
+
+    _seed_showcase_profile(tmp_home)
+    respx_mock.get(
+        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+    ).respond(
+        200,
+        json={
+            "id": "granted-ego-ds",
+            "slug": "granted-ego-ds",
+            "title": "Granted Ego DS",
+            "modality": "ego",
+            "task_type": "ego",
+            "robot_embodiment": "human-ego",
+            "episode_count": 10,
+            "total_hours": 1.0,
+            "effective_grants": [
+                {"variant": "raw", "scope": "full", "expires_at": None,
+                 "quota_remaining": None}
+            ],
+        },
+    )
+    respx_mock.get(
+        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds/download"
+    ).respond(
+        200,
+        json={
+            "dataset_title": "Granted Ego DS",
+            "dataset_slug": "granted-ego-ds",
+            "format": "ego-segments-raw",
+            "modality": "ego",
+            "variant": "raw",
+            "scope": "full",
+            "episodes": [],
+            "segments": [],
+            "quota_remaining": None,
+        },
+    )
+
+    result = cli_runner.invoke(
+        cli,
+        [
+            "datasets", "download", "granted-ego-ds",
+            "--variant", "raw", "--limit", "3", "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    dl_calls = [
+        c for c in respx_mock.calls
+        if c.request.url.path.endswith("/granted-ego-ds/download")
+    ]
+    assert dl_calls, "download endpoint was not called"
+    assert b"limit=3" in dl_calls[-1].request.url.query
+
+
+def test_download_limit_rejected_for_platform_account(cli_runner, tmp_home):
+    """``--limit`` is showcase-only; a platform account is told to use
+    --episode-ids instead. Fails pre-HTTP, so no mock is needed."""
+    from verlet.cli import cli
+
+    _seed_platform_profile(tmp_home)
+    result = cli_runner.invoke(
+        cli, ["datasets", "download", "some-ds", "--limit", "5"]
+    )
+    assert result.exit_code != 0
+    out = result.output.lower()
+    assert "--limit" in out and "showcase" in out
+
+
+def test_download_showcase_limit_zero_rejected(cli_runner, tmp_home):
+    """``--limit 0`` is rejected by click's IntRange(min=1) before any HTTP."""
+    from verlet.cli import cli
+
+    _seed_showcase_profile(tmp_home)
+    result = cli_runner.invoke(
+        cli, ["datasets", "download", "granted-ego-ds", "--limit", "0"]
+    )
+    assert result.exit_code != 0
+
+
 def test_download_showcase_ego_without_variant_friendly_error(
     cli_runner, respx_mock, tmp_home
 ):

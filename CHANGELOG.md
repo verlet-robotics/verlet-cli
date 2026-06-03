@@ -7,6 +7,20 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-06-03
+
+Showcase downloads can now pull a subset instead of the whole dataset.
+
+### Added
+
+- **`--limit N` on `verlet datasets download` (showcase).** Download just the
+  first N units — episodes for teleop, segments for ego — in stable order
+  instead of the entire dataset. Folded together with the grant's remaining
+  quota (whichever is smaller binds), applies to the `samples` preview too,
+  and only the served units are charged against quota. Platform accounts are
+  pointed at `--episode-ids` / `--segment-ids` instead. Pairs with a backend
+  change that accepts a `limit` query param on the gated download endpoint.
+
 ## [0.12.0] — 2026-06-02
 
 A proactive "a newer verlet is available" notice, plus a synchronous
