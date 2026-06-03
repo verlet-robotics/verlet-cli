@@ -261,6 +261,7 @@ def _showcase_download(
     resume: bool,
     force: bool,
     dry_run: bool,
+    compact: bool,
     rejected: dict[str, object],
 ) -> None:
     """Whole-dataset download for a showcase access code.
@@ -355,6 +356,31 @@ def _showcase_download(
     if result.failed:
         summary_parts.append(f"[red]{result.failed} failed[/red]")
     console.print(f"\n{', '.join(summary_parts)} -> {output_root}")
+
+    # Compaction: a quality filter (exclude_worst_pct / exclude_recovery_episodes)
+    # drops episodes, leaving a gappy tree whose meta still describes the full
+    # dataset — which the LeRobot loader can't open. Renumber to a contiguous,
+    # canonical layout. Only on a fully successful download (a partial set would
+    # renumber wrongly); idempotent + ~free when there are no gaps.
+    if compact and result.failed == 0 and result.downloaded + result.skipped > 0:
+        from verlet.datasets.compact import compact_dataset
+
+        try:
+            outcome = compact_dataset(output_root, modality)
+        except Exception as exc:  # never fail the download over compaction
+            console.print(
+                f"[yellow]Note:[/yellow] downloaded files are intact, but "
+                f"compaction did not complete ({exc}). The dataset may have "
+                f"gappy indices; re-run or pass --no-compact. "
+                f"Staging left at {output_root.parent}/.{output_root.name}.compacting"
+            )
+            outcome = None
+        if outcome is not None and outcome.gaps_closed:
+            console.print(
+                f"[green]compacted[/green] -> contiguous "
+                f"{outcome.units_after} {unit_word} (canonical layout)"
+            )
+
     if truncated and result.failed == 0:
         # Repeat the truncation context after the summary so the call to
         # action is the last thing on screen, not lost above the progress
@@ -459,6 +485,15 @@ def _showcase_download(
     is_flag=True,
     help="Re-download files even when --resume would skip them.",
 )
+@click.option(
+    "--no-compact",
+    is_flag=True,
+    help=(
+        "Skip post-download compaction. Showcase downloads of quality-filtered "
+        "datasets are renumbered to a contiguous, canonical LeRobot layout by "
+        "default; pass this to keep the raw served indices (gappy, may not load)."
+    ),
+)
 @click.pass_context
 def datasets_download(
     ctx: click.Context,
@@ -477,6 +512,7 @@ def datasets_download(
     resume: bool,
     dry_run: bool,
     force: bool,
+    no_compact: bool,
 ) -> None:
     """Download a dataset by slug. Auto-detects modality from the catalog row.
 
@@ -520,6 +556,7 @@ def datasets_download(
             resume=resume,
             force=force,
             dry_run=dry_run,
+            compact=not no_compact,
             rejected={
                 "--episode-ids": episode_ids,
                 "--segment-ids": segment_ids,
