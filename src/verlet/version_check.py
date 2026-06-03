@@ -38,6 +38,13 @@ PYPI_JSON_URL = "https://pypi.org/pypi/verlet/json"
 # refresh. 24h matches npm/gh; the nag itself fires every run while stale.
 CHECK_INTERVAL_SECONDS = 24 * 60 * 60
 
+# Burst guard: how long after spawning a background refresh we suppress
+# spawning another. This dedupes a flurry of commands (or a tight scripted
+# loop) into a single refresh process without freezing the staleness clock —
+# unlike ``checked_at``, this is NOT how we decide a cache is current, so a
+# failed refresh still retries on the next invocation past this window.
+SPAWN_DEDUPE_SECONDS = 5 * 60
+
 # Background refresh can afford a generous timeout (it blocks nothing).
 # The synchronous `verlet update --check` path uses a tighter one.
 _BG_FETCH_TIMEOUT = 5.0
@@ -109,7 +116,12 @@ def _read_cache() -> dict:
 
 
 def _write_cache(latest: str | None, checked_at: float) -> None:
-    """Merge the update-check cache back into config.json (read-modify-write)."""
+    """Merge the update-check cache back into config.json (read-modify-write).
+
+    ``checked_at`` is the *last successful check* timestamp and is the sole
+    input to the staleness decision — only callers that actually fetched a
+    ``latest`` should advance it (``_refresh_main`` / ``update --check``).
+    """
     cfg = load_config()
     cache = cfg.get("update_check")
     if not isinstance(cache, dict):
@@ -117,6 +129,22 @@ def _write_cache(latest: str | None, checked_at: float) -> None:
     if latest is not None:
         cache["latest"] = latest
     cache["checked_at"] = checked_at
+    cfg["update_check"] = cache
+    save_config(cfg)
+
+
+def _stamp_spawn(when: float) -> None:
+    """Record that a background refresh was just spawned (burst dedupe only).
+
+    Deliberately does NOT touch ``checked_at`` — a spawned refresh that later
+    fails must not look like a successful check, or the cache would freeze a
+    stale ``latest`` for a full ``CHECK_INTERVAL_SECONDS`` with no retry.
+    """
+    cfg = load_config()
+    cache = cfg.get("update_check")
+    if not isinstance(cache, dict):
+        cache = {}
+    cache["last_spawn"] = when
     cfg["update_check"] = cache
     save_config(cfg)
 
@@ -218,11 +246,20 @@ def notify_if_outdated() -> None:
             checked_at = 0.0
 
         if (_now() - checked_at) >= CHECK_INTERVAL_SECONDS:
-            # Stamp the timestamp optimistically BEFORE spawning so a burst of
-            # commands doesn't fan out a swarm of refresh processes. The child
-            # overwrites `latest` (and the timestamp) when it succeeds.
-            _write_cache(latest, _now())
-            _spawn_background_refresh()
+            # Staleness is measured from the last SUCCESSFUL check (checked_at),
+            # which only a completed fetch advances. We do NOT stamp checked_at
+            # here — doing so optimistically (the old bug) froze a stale
+            # `latest` for a full interval whenever the background refresh
+            # failed or lagged. Instead a short-lived `last_spawn` debounces a
+            # burst of commands; once it elapses, a still-stale cache simply
+            # retries the refresh on the next invocation.
+            try:
+                last_spawn = float(cache.get("last_spawn") or 0)
+            except (TypeError, ValueError):
+                last_spawn = 0.0
+            if (_now() - last_spawn) >= SPAWN_DEDUPE_SECONDS:
+                _stamp_spawn(_now())
+                _spawn_background_refresh()
     except Exception:
         # A broken update check must never break a real command.
         pass

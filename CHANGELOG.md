@@ -7,6 +7,33 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-06-03
+
+Safer, friendlier `datasets download`.
+
+### Added
+
+- **Pre-download confirmation.** Before transferring, `verlet datasets download`
+  now shows what's about to land — `About to download N episodes (~X GB) to
+  <dir>` — and waits for confirmation. The size estimate comes from the showcase
+  manifest's new `bytes_estimate` field (best-effort; omitted when unknown).
+  Skipped automatically when stdin isn't a TTY (scripts/CI never block) and with
+  the new `-y` / `--yes` flag.
+- **Positional output directory.** The destination can now be given as the last
+  argument — `verlet datasets download <slug> <output>` — as an alias for
+  `-o` / `--output`. Passing both is rejected.
+
+### Fixed
+
+- **Update notice could go stale for 24h.** The background "newer verlet
+  available" refresh stamped its *last-checked* timestamp optimistically,
+  before the network fetch ran. If that fetch failed or lagged, the cache froze
+  the old `latest` for a full day with no retry — so a freshly published release
+  never surfaced. The staleness clock (`checked_at`) now advances only on a
+  successful fetch; a short separate `last_spawn` debounce keeps command bursts
+  from fanning out duplicate refreshes, and a failed refresh self-heals on the
+  next invocation. (`verlet update --check` still forces a synchronous check.)
+
 ## [0.14.0] — 2026-06-03
 
 Quality-filtered showcase downloads now arrive as a clean, loadable dataset.

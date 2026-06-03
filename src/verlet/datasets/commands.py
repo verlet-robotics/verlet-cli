@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 import click
@@ -62,6 +63,61 @@ from verlet.license import (
     prompt_license_acceptance,
     write_license_file,
 )
+
+
+def _human_size(num_bytes: int | None) -> str | None:
+    """Render a byte count as a human-readable size (e.g. '4.2 GB').
+
+    Returns ``None`` when the size is unknown so callers can fall back to a
+    count-only confirmation rather than printing a misleading '0 B'.
+    """
+    if not num_bytes or num_bytes <= 0:
+        return None
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    size = float(num_bytes)
+    idx = 0
+    while size >= 1024 and idx < len(units) - 1:
+        size /= 1024
+        idx += 1
+    return f"{size:.0f} {units[idx]}" if idx == 0 else f"{size:.1f} {units[idx]}"
+
+
+def _is_interactive() -> bool:
+    """Whether stdin is a TTY we can prompt on. Wrapped so tests can override."""
+    try:
+        return sys.stdin.isatty()
+    except Exception:
+        return False
+
+
+def _confirm_download(
+    *,
+    units: int | None,
+    unit_word: str,
+    n_files: int,
+    size_bytes: int | None,
+    dest: Path,
+    assume_yes: bool,
+) -> bool:
+    """Show a pre-download confirmation and return whether to proceed.
+
+    Skipped (returns ``True``) when ``--yes`` is passed or stdin is not a TTY,
+    so scripted/CI use is never blocked. The estimate phrasing degrades
+    gracefully: counts always; "~X GB" only when the manifest carried a size.
+    """
+    if assume_yes or not _is_interactive():
+        return True
+
+    if units is not None:
+        head = f"{units:,} {unit_word}"
+    else:
+        head = f"{n_files:,} file{'s' if n_files != 1 else ''}"
+    size_str = _human_size(size_bytes)
+    size_part = f" (~{size_str})" if size_str else ""
+    console.print(
+        f"About to download [bold]{head}[/bold]{size_part} to [cyan]{dest}[/cyan]."
+    )
+    return click.confirm("Proceed?", default=True)
 
 
 @click.group("datasets")
@@ -226,6 +282,13 @@ verlet datasets download imitate-cube
 ```
 
 \b
+Download into a specific directory (positional, or use -o/--output):
+
+```bash
+verlet datasets download imitate-cube ~/datasets
+```
+
+\b
 Convert to HDF5 before download (server-side conversion + foreground polling):
 
 ```bash
@@ -262,6 +325,7 @@ def _showcase_download(
     force: bool,
     dry_run: bool,
     compact: bool,
+    assume_yes: bool,
     rejected: dict[str, object],
 ) -> None:
     """Whole-dataset download for a showcase access code.
@@ -342,6 +406,18 @@ def _showcase_download(
         )
         return
 
+    served_units = len(manifest.get("segments") or manifest.get("episodes") or [])
+    if not _confirm_download(
+        units=served_units or None,
+        unit_word=unit_word,
+        n_files=len(items),
+        size_bytes=manifest.get("bytes_estimate"),
+        dest=output_root,
+        assume_yes=assume_yes,
+    ):
+        console.print("[dim]Download cancelled.[/dim]")
+        return
+
     result: DownloadResult = asyncio.run(
         download_resolved(
             items, parallel=parallel, skip_existing=resume and not force
@@ -397,6 +473,7 @@ def _showcase_download(
 
 @datasets_group.command("download", epilog=_DOWNLOAD_EPILOG)
 @click.argument("slug")
+@click.argument("output_arg", required=False, default=None, metavar="[OUTPUT]")
 @click.option(
     "--variant",
     type=click.Choice(["raw", "processed"]),
@@ -436,8 +513,19 @@ def _showcase_download(
 @click.option(
     "-o",
     "--output",
-    default="./verlet-data",
-    help="Output directory (per-dataset subdir rooted at {output}/{slug}/).",
+    default=None,
+    help=(
+        "Output directory (per-dataset subdir rooted at {output}/{slug}/). "
+        "Defaults to ./verlet-data. May also be given positionally as the last "
+        "argument: `verlet datasets download <slug> <output>`."
+    ),
+)
+@click.option(
+    "-y",
+    "--yes",
+    "assume_yes",
+    is_flag=True,
+    help="Skip the pre-download confirmation prompt (for scripts / CI).",
 )
 @click.option(
     "--format",
@@ -498,12 +586,14 @@ def _showcase_download(
 def datasets_download(
     ctx: click.Context,
     slug: str,
+    output_arg: str | None,
     variant: str | None,
     scope: str,
     limit: int | None,
     episode_ids: str | None,
     segment_ids: str | None,
-    output: str,
+    output: str | None,
+    assume_yes: bool,
     format: str | None,
     verbose: bool,
     quiet: bool,
@@ -527,6 +617,16 @@ def datasets_download(
     is a no-op for native (200) manifests — there is no async job to background,
     so the CLI errors out instead of silently downloading.
     """
+    # 0a. Resolve the output directory. It can be given positionally (last arg)
+    # or via -o/--output, but not both — passing both is ambiguous and almost
+    # always a mistake. Falls back to ./verlet-data.
+    if output_arg is not None and output is not None:
+        raise click.UsageError(
+            "Pass the output directory either positionally or with -o/--output, "
+            "not both."
+        )
+    output = output_arg or output or "./verlet-data"
+
     # 1. Auth gate (D-MOD4) — fail fast pre-HTTP. Resolve the profile name from
     # the root --profile flag / VERLET_PROFILE env / credentials.json default,
     # then require_profile() to confirm an entry exists.
@@ -557,6 +657,7 @@ def datasets_download(
             force=force,
             dry_run=dry_run,
             compact=not no_compact,
+            assume_yes=assume_yes,
             rejected={
                 "--episode-ids": episode_ids,
                 "--segment-ids": segment_ids,
@@ -690,6 +791,19 @@ def datasets_download(
             console.print(f"  {it.local_path}")
         if len(items) > 20:
             console.print(f"  ... and {len(items) - 20} more")
+        return
+
+    # Platform manifests don't carry per-file sizes, so confirm on file count
+    # alone (the showcase path additionally shows an estimated total size).
+    if not _confirm_download(
+        units=None,
+        unit_word="files",
+        n_files=len(items),
+        size_bytes=None,
+        dest=output_root,
+        assume_yes=assume_yes,
+    ):
+        console.print("[dim]Download cancelled.[/dim]")
         return
 
     # 8. Dispatch.

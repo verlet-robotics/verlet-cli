@@ -166,8 +166,47 @@ def test_notify_spawns_refresh_when_stale(tmp_home, monkeypatch):
 
     vc.notify_if_outdated()
     assert spawned["n"] == 1
-    # Optimistic timestamp stamped before spawn.
-    assert vc._read_cache()["checked_at"] == 10 * vc.CHECK_INTERVAL_SECONDS
+    # checked_at is NOT advanced here — only a successful fetch does that, so a
+    # failed/slow refresh self-heals on the next run instead of freezing.
+    cache = vc._read_cache()
+    assert cache["checked_at"] == 0.0
+    assert cache["last_spawn"] == 10 * vc.CHECK_INTERVAL_SECONDS
+
+
+def test_notify_self_heals_when_refresh_never_succeeded(tmp_home, monkeypatch):
+    """A spawned-but-failed refresh (checked_at untouched) retries next run,
+    once the burst-dedupe window has elapsed — the old optimistic-stamp bug
+    would have frozen the stale cache for a full interval."""
+    monkeypatch.delenv("VERLET_NO_UPDATE_CHECK", raising=False)
+    monkeypatch.setattr("verlet.__version__", "0.11.0", raising=False)
+    vc._write_cache("0.11.0", 0.0)  # never-succeeded check
+
+    spawned = {"n": 0}
+    monkeypatch.setattr(
+        vc, "_spawn_background_refresh",
+        lambda: spawned.__setitem__("n", spawned["n"] + 1),
+    )
+
+    # First stale invocation spawns; records last_spawn but not checked_at.
+    monkeypatch.setattr(vc, "_now", lambda: 10 * vc.CHECK_INTERVAL_SECONDS)
+    vc.notify_if_outdated()
+    assert spawned["n"] == 1
+
+    # A second invocation within the dedupe window does NOT re-spawn.
+    monkeypatch.setattr(
+        vc, "_now",
+        lambda: 10 * vc.CHECK_INTERVAL_SECONDS + vc.SPAWN_DEDUPE_SECONDS - 1,
+    )
+    vc.notify_if_outdated()
+    assert spawned["n"] == 1
+
+    # Past the dedupe window, the still-stale cache retries (self-heal).
+    monkeypatch.setattr(
+        vc, "_now",
+        lambda: 10 * vc.CHECK_INTERVAL_SECONDS + vc.SPAWN_DEDUPE_SECONDS + 1,
+    )
+    vc.notify_if_outdated()
+    assert spawned["n"] == 2
 
 
 def test_notify_never_raises(tmp_home, monkeypatch):
