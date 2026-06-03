@@ -7,6 +7,24 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-06-03
+
+Quality-filtered showcase downloads now arrive as a clean, loadable dataset.
+
+### Added
+
+- **Post-download compaction.** When a publisher quality filter
+  (`exclude_worst_pct` / `exclude_recovery_episodes`) drops episodes, the served
+  manifest is gappy and its `meta/` still describes the full dataset — which the
+  LeRobot loader can't open. `verlet datasets download` (showcase) now renumbers
+  the result to a contiguous, canonical LeRobot v2.1 layout: survivors become
+  `0..N-1`, each parquet's `episode_index`/`index` columns are rewritten, files
+  move into `data/chunk-XXX/` + `videos/chunk-XXX/`, and `info.json` /
+  `episodes.jsonl` / `episodes_stats.jsonl` are regenerated. Ego segment trees
+  are renumbered by directory. Contiguous (unfiltered) downloads are left
+  untouched; pass `--no-compact` to opt out. Adds a `pyarrow` dependency
+  (lazily imported, only the gappy rewrite path needs it).
+
 ## [0.13.0] — 2026-06-03
 
 Showcase downloads can now pull a subset instead of the whole dataset.
