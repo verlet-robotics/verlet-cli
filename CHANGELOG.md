@@ -7,6 +7,17 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-07-07
+
+### Fixed
+
+- **`verlet update` looked like a hang.** The upgrade subprocess ran with its
+  output captured, so a slow `brew upgrade` — e.g. one that rebuilds the
+  formula's virtualenv from source after a `python@3.12` revision bump — sat
+  silent for minutes after the `running: …` line. brew/pipx output (stdout +
+  stderr merged) now streams to the terminal live; the up-to-date detection
+  still works on the accumulated transcript.
+
 ## [0.15.0] — 2026-06-03
 
 Safer, friendlier `datasets download`.
