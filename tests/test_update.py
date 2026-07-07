@@ -10,15 +10,42 @@
     each invocation; nothing to upgrade." line and exits 0.
   * `verlet update` on unknown method prints the reinstall hint to stderr
     and exits 1.
-  * Locale-safe stdout: subprocess.run is called with LANG=LC_ALL=C.UTF-8.
+  * Locale-safe stdout: the upgrade subprocess runs with LANG=LC_ALL=C.UTF-8.
   * Pitfall 4 invariant: `verlet update` NEVER calls `pip install --upgrade`.
   * already-up-to-date marker handling for both pipx + brew (locale-safe).
+  * Subprocess output is streamed live (Popen), not silently captured.
 """
 from __future__ import annotations
 
-import subprocess
+import io
 
 from verlet.cli import cli
+
+
+class FakePopen:
+    """Stand-in for subprocess.Popen in the streaming upgrade path."""
+
+    def __init__(self, output: str, returncode: int = 0):
+        self.stdout = io.StringIO(output)
+        self._returncode = returncode
+
+    def wait(self) -> int:
+        return self._returncode
+
+
+def install_fake_popen(
+    monkeypatch, output: str, returncode: int = 0
+) -> dict:
+    """Patch subprocess.Popen with a fake; return dict capturing argv/env."""
+    captured: dict = {}
+
+    def fake_popen(argv, **kw):
+        captured["argv"] = argv
+        captured["env"] = kw.get("env", {})
+        return FakePopen(output, returncode)
+
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
+    return captured
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +99,7 @@ def test_detect_install_method_unknown(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# verlet update CLI command tests (mocked subprocess.run)
+# verlet update CLI command tests (mocked subprocess.Popen)
 # ---------------------------------------------------------------------------
 
 
@@ -82,21 +109,9 @@ def test_update_pipx_runs_pipx_upgrade(monkeypatch, cli_runner):
         "sys.executable",
         "/home/alice/.local/share/pipx/venvs/verlet/bin/python",
     )
-    completed = subprocess.CompletedProcess(
-        args=["pipx", "upgrade", "verlet"],
-        returncode=0,
-        stdout="upgraded verlet 0.7.0 -> 0.8.0",
-        stderr="",
+    captured = install_fake_popen(
+        monkeypatch, "upgraded verlet 0.7.0 -> 0.8.0\n"
     )
-
-    captured: dict = {}
-
-    def fake_run(argv, **kw):
-        captured["argv"] = argv
-        captured["env"] = kw.get("env", {})
-        return completed
-
-    monkeypatch.setattr("subprocess.run", fake_run)
 
     result = cli_runner.invoke(cli, ["update"])
     assert result.exit_code == 0, (result.output, result.stderr)
@@ -106,19 +121,37 @@ def test_update_pipx_runs_pipx_upgrade(monkeypatch, cli_runner):
     assert captured["env"].get("LC_ALL") == "C.UTF-8"
 
 
+def test_update_streams_subprocess_output_live(monkeypatch, cli_runner):
+    """The subprocess transcript is echoed to the terminal, not swallowed.
+
+    A silent capture made a slow brew rebuild (e.g. after a python@3.12
+    revision bump) look like a multi-minute hang.
+    """
+    monkeypatch.setattr(
+        "sys.executable",
+        "/opt/homebrew/Cellar/verlet/0.8.0/bin/python",
+    )
+    install_fake_popen(
+        monkeypatch,
+        "==> Fetching verlet-robotics/verlet/verlet\n"
+        "==> Installing verlet from verlet-robotics/verlet\n",
+    )
+
+    result = cli_runner.invoke(cli, ["update"])
+    assert result.exit_code == 0, (result.output, result.stderr)
+    assert "==> Fetching verlet-robotics/verlet/verlet" in result.output
+    assert "==> Installing verlet from verlet-robotics/verlet" in result.output
+
+
 def test_update_pipx_already_up_to_date(monkeypatch, cli_runner):
     """pipx no-op marker `is already at the latest version` -> 'already up to date'."""
     monkeypatch.setattr(
         "sys.executable",
         "/home/alice/.local/share/pipx/venvs/verlet/bin/python",
     )
-    completed = subprocess.CompletedProcess(
-        args=["pipx", "upgrade", "verlet"],
-        returncode=0,
-        stdout="verlet is already at the latest version 0.8.0",
-        stderr="",
+    install_fake_popen(
+        monkeypatch, "verlet is already at the latest version 0.8.0\n"
     )
-    monkeypatch.setattr("subprocess.run", lambda *a, **kw: completed)
 
     result = cli_runner.invoke(cli, ["update"])
     assert result.exit_code == 0, (result.output, result.stderr)
@@ -131,13 +164,10 @@ def test_update_brew_already_up_to_date(monkeypatch, cli_runner):
         "sys.executable",
         "/opt/homebrew/Cellar/verlet/0.8.0/bin/python",
     )
-    completed = subprocess.CompletedProcess(
-        args=["brew", "upgrade", "verlet-robotics/verlet/verlet"],
-        returncode=0,
-        stdout="Warning: verlet 0.8.0 is already installed and up-to-date.",
-        stderr="",
+    install_fake_popen(
+        monkeypatch,
+        "Warning: verlet 0.8.0 is already installed and up-to-date.\n",
     )
-    monkeypatch.setattr("subprocess.run", lambda *a, **kw: completed)
 
     result = cli_runner.invoke(cli, ["update"])
     assert result.exit_code == 0, (result.output, result.stderr)
@@ -145,7 +175,7 @@ def test_update_brew_already_up_to_date(monkeypatch, cli_runner):
 
 
 def test_update_uvx_prints_static_message(monkeypatch, cli_runner):
-    """uvx detection: print verbatim message + exit 0; never call subprocess.run."""
+    """uvx detection: print verbatim message + exit 0; never spawn a subprocess."""
     monkeypatch.setattr(
         "sys.executable",
         "/home/alice/.cache/uv/archive-v0/abcd/bin/python",
@@ -153,11 +183,11 @@ def test_update_uvx_prints_static_message(monkeypatch, cli_runner):
 
     called = {"n": 0}
 
-    def fake_run(*a, **kw):
+    def fake_popen(*a, **kw):
         called["n"] += 1
-        raise AssertionError("subprocess.run must not be called for uvx")
+        raise AssertionError("subprocess.Popen must not be called for uvx")
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
 
     result = cli_runner.invoke(cli, ["update"])
     assert result.exit_code == 0, (result.output, result.stderr)
@@ -171,13 +201,13 @@ def test_update_uvx_prints_static_message(monkeypatch, cli_runner):
 def test_update_unknown_method_exits_one_with_reinstall_hint(
     monkeypatch, cli_runner
 ):
-    """unknown install method -> exit 1 + stderr reinstall hint; no subprocess.run."""
+    """unknown install method -> exit 1 + stderr reinstall hint; no subprocess."""
     monkeypatch.setattr("sys.executable", "/usr/bin/python3")
 
-    def fake_run(*a, **kw):
-        raise AssertionError("subprocess.run must not be called when method=unknown")
+    def fake_popen(*a, **kw):
+        raise AssertionError("subprocess.Popen must not be called when method=unknown")
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
 
     result = cli_runner.invoke(cli, ["update"])
     assert result.exit_code == 1, (result.output, result.stderr)
@@ -199,42 +229,31 @@ def test_update_never_calls_pip_install_upgrade(monkeypatch, cli_runner):
         "sys.executable",
         "/home/alice/.local/share/pipx/venvs/verlet/bin/python",
     )
+    captured = install_fake_popen(monkeypatch, "ok\n")
 
-    completed = subprocess.CompletedProcess(
-        args=["pipx", "upgrade", "verlet"], returncode=0, stdout="ok", stderr=""
-    )
-    captured_pipx: dict = {}
-
-    def fake_run_pipx(argv, **kw):
-        captured_pipx["argv"] = argv
-        return completed
-
-    monkeypatch.setattr("subprocess.run", fake_run_pipx)
     cli_runner.invoke(cli, ["update"])
-    assert captured_pipx["argv"][0] != "pip"
-    joined = " ".join(captured_pipx["argv"])
+    assert captured["argv"][0] != "pip"
+    joined = " ".join(captured["argv"])
     assert "pip install --upgrade" not in joined
     assert "pip install" not in joined
 
 
 def test_update_subprocess_failure_propagates_exit_code(monkeypatch, cli_runner):
-    """If subprocess returns non-zero, surface stderr + exit with same code."""
+    """If subprocess returns non-zero, surface its output + exit with same code."""
     monkeypatch.setattr(
         "sys.executable",
         "/home/alice/.local/share/pipx/venvs/verlet/bin/python",
     )
-    completed = subprocess.CompletedProcess(
-        args=["pipx", "upgrade", "verlet"],
-        returncode=2,
-        stdout="",
-        stderr="pipx: not authenticated to upgrade",
+    install_fake_popen(
+        monkeypatch, "pipx: not authenticated to upgrade\n", returncode=2
     )
-    monkeypatch.setattr("subprocess.run", lambda *a, **kw: completed)
 
     result = cli_runner.invoke(cli, ["update"])
     assert result.exit_code == 2, (result.output, result.stderr)
+    # Failure output was already streamed live; the exit banner goes to stderr.
     err = result.stderr or result.output
-    assert "pipx: not authenticated to upgrade" in err
+    assert "upgrade failed (exit 2)" in err
+    assert "pipx: not authenticated to upgrade" in result.output
 
 
 def test_update_help_exits_zero(cli_runner):

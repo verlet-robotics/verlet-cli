@@ -12,9 +12,11 @@ invocation; nothing to upgrade in place. Unknown method is a hard
 refusal — Pitfall 4 invariant locks ``pip install --upgrade`` out
 of every code path.
 
-Locale-safe: subprocess.run is invoked with ``LANG=LC_ALL=C.UTF-8`` so
-the no-op marker parsing works on corporate Macs whose default locale
-isn't ``en_US.UTF-8``.
+Locale-safe: the upgrade subprocess is invoked with ``LANG=LC_ALL=C.UTF-8``
+so the no-op marker parsing works on corporate Macs whose default locale
+isn't ``en_US.UTF-8``. Output is streamed live (merged stdout+stderr) while
+being accumulated for the marker parser — a silent capture made slow brew
+rebuilds look like a hang.
 """
 from __future__ import annotations
 
@@ -65,6 +67,31 @@ def detect_install_method() -> tuple[InstallMethod, list[str] | None]:
     # 4. Unknown — refuse destructive `pip install --upgrade` (Pitfall 4
     #    invariant). The user is told how to reinstall via a clean method.
     return ("unknown", None)
+
+
+def _run_streaming(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
+    """Run the upgrade command, echoing its output live while accumulating it.
+
+    ``capture_output=True`` left the terminal silent for the whole run — a
+    brew upgrade that rebuilds the formula virtualenv from source (e.g. after
+    a python@3.12 revision bump) looks like a hang for several minutes. Stream
+    stdout+stderr merged so the user sees brew/pipx progress; the accumulated
+    transcript still feeds the no-op-marker parser.
+    """
+    proc = subprocess.Popen(
+        argv,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    chunks: list[str] = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        chunks.append(line)
+        click.echo(line, nl=False)
+    return (proc.wait(), "".join(chunks))
 
 
 def _is_no_op_marker(output: str) -> bool:
@@ -162,16 +189,14 @@ def update(check_only: bool):
         f"[dim]running:[/dim] [cyan]{' '.join(argv)}[/cyan]"
     )
     env = {**os.environ, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
-    result = subprocess.run(argv, env=env, capture_output=True, text=True)
-    combined = (result.stdout or "") + (result.stderr or "")
+    returncode, combined = _run_streaming(argv, env)
 
-    if result.returncode == 0:
+    if returncode == 0:
         if _is_no_op_marker(combined):
             console.print("already up to date")
         else:
             console.print("[green]upgrade complete[/green]")
         return
 
-    click.echo(f"upgrade failed (exit {result.returncode}):", err=True)
-    click.echo(combined, err=True)
-    raise SystemExit(result.returncode)
+    click.echo(f"upgrade failed (exit {returncode}):", err=True)
+    raise SystemExit(returncode)
