@@ -188,6 +188,130 @@ def test_teleop_no_episodes_returns_none(tmp_path):
     assert compact_teleop(tmp_path / "empty") is None
 
 
+def test_teleop_ledger_only_force_finalizes_contiguous_tree(tmp_path):
+    """A ledger-only download is contiguous by dataset index but its parquets
+    still carry the station's episode numbering and there is no meta/. With
+    ``force`` + inline ``meta`` it is renumbered, ``task_index`` zeroed,
+    meta/ written from the manifest + parquets, calibration moved."""
+    d = tmp_path / "ledger-ds"
+    d.mkdir()
+    rows = 4
+    # Directory names are dataset indices; parquet episode_index is the source's.
+    for dataset_idx, source_idx in ((0, 17), (1, 42)):
+        _write_episode(d, dataset_idx, rows=rows, cameras=["cam_high"])
+        pq_path = d / f"episode_{dataset_idx:06d}" / f"episode_{dataset_idx:06d}.parquet"
+        t = pq.read_table(pq_path)
+        t = t.set_column(
+            t.column_names.index("episode_index"), "episode_index",
+            pa.array([source_idx] * rows, type=pa.int64()),
+        )
+        t = t.set_column(
+            t.column_names.index("task_index"), "task_index",
+            pa.array([1] * rows, type=pa.int64()),
+        )
+        pq.write_table(t, pq_path)
+    (d / "episode_000001" / "calibration.json").write_text('{"rig": "b"}')
+
+    meta = {
+        "info": {
+            "fps": 30,
+            "features": {
+                "observation.images.cam_high": {"dtype": "video", "shape": [480, 640, 3]},
+                "observation.images.cam_gone": {"dtype": "video", "shape": [480, 640, 3]},
+                "action": {"dtype": "float64", "shape": [1]},
+            },
+        },
+        "task": "fold towel",
+    }
+    res = compact_teleop(d, force=True, meta=meta)
+    assert res is not None and res.reindexed and not res.gaps_closed
+
+    t0 = pq.read_table(d / "data" / "chunk-000" / "episode_000000.parquet")
+    t1 = pq.read_table(d / "data" / "chunk-000" / "episode_000001.parquet")
+    assert set(t0.column("episode_index").to_pylist()) == {0}
+    assert set(t1.column("episode_index").to_pylist()) == {1}
+    assert t1.column("index").to_pylist() == list(range(rows, 2 * rows))
+    assert set(t1.column("task_index").to_pylist()) == {0}
+    assert (d / "videos" / "chunk-000" / "observation.images.cam_high" / "episode_000001.mp4").exists()
+
+    info = json.loads((d / "meta" / "info.json").read_text())
+    assert info["total_episodes"] == 2 and info["total_frames"] == 2 * rows
+    assert info["total_videos"] == 2 and info["splits"] == {"train": "0:2"}
+    assert "observation.images.cam_gone" not in info["features"]
+    assert "observation.images.cam_high" in info["features"]
+    assert json.loads((d / "meta" / "tasks.jsonl").read_text()) == {"task_index": 0, "task": "fold towel"}
+    eps = [json.loads(x) for x in (d / "meta" / "episodes.jsonl").read_text().splitlines()]
+    assert [e["episode_index"] for e in eps] == [0, 1] and eps[0]["length"] == rows
+    stats = [json.loads(x) for x in (d / "meta" / "episodes_stats.jsonl").read_text().splitlines()]
+    assert [s["episode_index"] for s in stats] == [0, 1]
+    assert stats[1]["stats"]["index"]["min"] == [float(rows)]
+    assert stats[0]["stats"]["episode_index"]["max"] == [0.0]
+    assert (d / "meta" / "calibration" / "episode_000001.json").read_text() == '{"rig": "b"}'
+    assert not (d / "meta" / "calibration" / "episode_000000.json").exists()
+    assert not (d / "episode_000000").exists()
+
+
+def test_ledger_plan_lands_canonical_and_refinalizes_in_place(tmp_path):
+    """Ledger-only manifests plan files straight into the canonical layout so a
+    re-run skips them; a second forced finalize is a no-op on the tree and
+    top-level files (LICENSE) survive the swap."""
+    from verlet.datasets._manifest import plan_items
+
+    slug = "ledger-ds"
+    manifest = {
+        "dataset_slug": slug,
+        "meta": {"info": {"fps": 30}, "task": "fold"},
+        "episodes": [
+            {
+                "episode_index": i,
+                "parquet_url": f"https://x/{i}.parquet",
+                "video_urls": [{"camera": "cam_high", "url": f"https://x/{i}.mp4"}],
+                "calibration_url": f"https://x/{i}.json",
+                "meta_urls": [],
+            }
+            for i in (0, 1)
+        ],
+    }
+    items = plan_items(slug, tmp_path, manifest)
+    d = tmp_path / slug
+    paths = {str(it.local_path.relative_to(d)) for it in items}
+    assert paths == {
+        "data/chunk-000/episode_000000.parquet",
+        "data/chunk-000/episode_000001.parquet",
+        "videos/chunk-000/observation.images.cam_high/episode_000000.mp4",
+        "videos/chunk-000/observation.images.cam_high/episode_000001.mp4",
+        "meta/calibration/episode_000000.json",
+        "meta/calibration/episode_000001.json",
+    }
+    rows = 3
+    for it in items:
+        it.local_path.parent.mkdir(parents=True, exist_ok=True)
+        if it.local_path.suffix == ".parquet":
+            src = 40 + int(_EP_RE.search(it.local_path.name).group(1))
+            pq.write_table(
+                pa.table({
+                    "episode_index": pa.array([src] * rows, type=pa.int64()),
+                    "index": pa.array(range(rows), type=pa.int64()),
+                    "action": pa.array([0.0] * rows, type=pa.float64()),
+                }),
+                it.local_path,
+            )
+        else:
+            it.local_path.write_bytes(b"x")
+    (d / "LICENSE").write_text("terms")
+
+    first = compact_teleop(d, force=True, meta=manifest["meta"])
+    assert first is not None and first.reindexed
+    assert (d / "LICENSE").read_text() == "terms"
+    assert (d / "meta" / "info.json").is_file()
+    assert {str(p.relative_to(d)) for p in d.rglob("*") if p.is_file()} >= paths
+    snapshot = {p: p.read_bytes() for p in d.rglob("*") if p.is_file()}
+
+    second = compact_teleop(d, force=True, meta=manifest["meta"])
+    assert second is not None and second.reindexed
+    assert {p: p.read_bytes() for p in d.rglob("*") if p.is_file()} == snapshot
+
+
 # ── ego ──────────────────────────────────────────────────────────────────────
 
 

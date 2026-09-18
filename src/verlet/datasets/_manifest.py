@@ -43,23 +43,49 @@ def plan_items(slug: str, dest_root: Path, manifest: dict) -> list[DownloadPlanI
         return out
 
     # Teleop: one directory per episode; meta files are dataset-global.
+    # A ledger-only manifest (inline ``meta``) is always finalized in place
+    # after download, so its files land directly in the canonical LeRobot
+    # layout — a re-run then skips every file that already exists instead of
+    # re-pulling a tree the finalize step moved.
+    ledger = bool(manifest.get("meta"))
     out = []
     seen_meta: set[str] = set()
     for ep in manifest.get("episodes", []):
         ep_idx = ep["episode_index"]
-        ep_dir = dataset_dir / f"episode_{ep_idx:06d}"
+        stem = f"episode_{ep_idx:06d}"
+        chunk = f"chunk-{ep_idx // 1000:03d}"
+        ep_dir = dataset_dir / stem
         if ep.get("parquet_url"):
             out.append(
                 DownloadPlanItem(
                     url=ep["parquet_url"],
-                    local_path=ep_dir / f"episode_{ep_idx:06d}.parquet",
+                    local_path=(
+                        dataset_dir / "data" / chunk / f"{stem}.parquet"
+                        if ledger
+                        else ep_dir / f"{stem}.parquet"
+                    ),
                 )
             )
         for v in ep.get("video_urls", []):
+            cam = v["camera"]
             out.append(
                 DownloadPlanItem(
                     url=v["url"],
-                    local_path=ep_dir / "videos" / f"{v['camera']}.mp4",
+                    local_path=(
+                        dataset_dir / "videos" / chunk / f"observation.images.{cam}" / f"{stem}.mp4"
+                        if ledger
+                        else ep_dir / "videos" / f"{cam}.mp4"
+                    ),
+                )
+            )
+        if ep.get("calibration_url"):
+            # Ledger-only datasets: presigned without an existence check, a
+            # 404 just means this rig shipped no calibration.
+            out.append(
+                DownloadPlanItem(
+                    url=ep["calibration_url"],
+                    local_path=dataset_dir / "meta" / "calibration" / f"{stem}.json",
+                    optional=True,
                 )
             )
         for m in ep.get("meta_urls", []):

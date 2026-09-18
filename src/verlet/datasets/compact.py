@@ -17,6 +17,12 @@ This module renumbers the downloaded tree locally so it loads cleanly:
   ``episodes_stats.jsonl``. Mirrors the backend transform in
   ``core/workflows/dataset_aggregation.py::_process_parquet`` and the meta regen in
   ``scripts/backfill_compact_gappy_datasets.py``.
+
+  **Ledger-only datasets** (the manifest carries inline ``meta`` instead of
+  ``meta/`` objects) are *always* finalized here, even when the tree is already
+  contiguous: their parquets still carry the station's own episode numbering and
+  no ``meta/`` exists until this step writes it from the manifest's ``info`` +
+  ``task`` and the parquets on disk.
 * **Ego** — segments are self-contained (per-segment, segment-local parquet index),
   so compaction is pure ``segment_NNNNNN`` directory renumbering; no parquet rewrite.
 
@@ -114,16 +120,73 @@ def _episode_videos(dataset_dir: Path, old_index: int) -> dict[str, Path]:
     return cams
 
 
-def compact_teleop(dataset_dir: Path) -> CompactResult | None:
+def _episode_calibration(dataset_dir: Path, old_index: int) -> Path | None:
+    """Per-episode calibration JSON, in either downloaded layout."""
+    for cand in (
+        dataset_dir / _episode_stem(old_index) / "calibration.json",
+        dataset_dir / "meta" / "calibration" / f"{_episode_stem(old_index)}.json",
+    ):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _reindex_table(table, new_index: int, offset: int):
+    """Rewrite the index columns of one episode's parquet for position
+    ``new_index`` / global row offset ``offset``: ``episode_index`` (constant),
+    ``index`` (cumulative), ``task_index`` (0 — one task per dataset), and the
+    ``path`` field of any legacy ``observation.images.*`` struct column. Mirrors
+    the backend's ``_process_parquet``."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    num_rows = table.num_rows
+    names = table.column_names
+
+    def _set(name: str, values) -> None:
+        nonlocal table
+        if name in names:
+            t = table.schema.field(name).type
+            table = table.set_column(names.index(name), name, pa.array(values, type=t))
+
+    _set("episode_index", [new_index] * num_rows)
+    _set("index", range(offset, offset + num_rows))
+    _set("task_index", [0] * num_rows)
+
+    for name in names:
+        if not name.startswith("observation.images."):
+            continue
+        col = table.column(name)
+        if not pa.types.is_struct(col.type) or col.type.get_field_index("path") < 0:
+            continue
+        combined = col.combine_chunks() if col.num_chunks > 1 else col.chunks[0]
+        fields = [combined.type.field(i).name for i in range(combined.type.num_fields)]
+        arrays = []
+        for f in fields:
+            arr = combined.field(f)
+            if f == "path":
+                arr = pc.replace_substring_regex(arr, r"episode_\d{6}", _episode_stem(new_index))
+                arr = pc.replace_substring_regex(arr, r"chunk-\d{3}", _chunk_dir(new_index))
+            arrays.append(arr)
+        table = table.set_column(
+            names.index(name), name, pa.StructArray.from_arrays(arrays, names=fields)
+        )
+    return table
+
+
+def compact_teleop(
+    dataset_dir: Path, *, force: bool = False, meta: dict | None = None
+) -> CompactResult | None:
     """Close index gaps in a teleop dataset tree, in place. Idempotent.
 
-    Acts **only when episode indices are gappy** (i.e. a quality filter dropped
-    episodes). A contiguous ``0..N-1`` download — the common unfiltered case — is
-    left exactly as-is, so regular downloads pay nothing and their layout is
-    unchanged. When gaps exist, survivors are renumbered ``0..N-1``: each parquet's
-    ``episode_index`` + global ``index`` columns are rewritten, files are placed in
-    the canonical ``data/chunk-XXX/`` + ``videos/chunk-XXX/`` layout (the loadable
-    target), and ``meta/`` is regenerated.
+    Acts when episode indices are gappy (a quality filter dropped episodes) or
+    when ``force`` is set. A contiguous ``0..N-1`` download of a dataset that
+    shipped its own ``meta/`` is left exactly as-is. Otherwise survivors are
+    renumbered ``0..N-1``: each parquet's index columns are rewritten, files are
+    placed in the canonical ``data/chunk-XXX/`` + ``videos/chunk-XXX/`` layout,
+    and ``meta/`` is regenerated — from the downloaded ``meta/`` when there is
+    one, or from the manifest's inline ``meta`` (``info`` + ``task``) plus the
+    parquets on disk for a ledger-only dataset.
 
     Returns a :class:`CompactResult`, or ``None`` if ``dataset_dir`` holds no
     teleop episodes (e.g. an ego tree).
@@ -134,12 +197,12 @@ def compact_teleop(dataset_dir: Path) -> CompactResult | None:
 
     old_indices = sorted(episodes)
     n = len(old_indices)
-    if old_indices == list(range(n)):
+    gappy = old_indices != list(range(n))
+    if not gappy and not force:
         # No gaps — leave the tree untouched (status quo for unfiltered pulls).
         return CompactResult("teleop", n, n, gaps_closed=False, reindexed=False)
 
-    import pyarrow as pa  # lazy: only the gappy rewrite path needs pyarrow
-    import pyarrow.parquet as pq
+    import pyarrow.parquet as pq  # lazy: only the rewrite path needs pyarrow
 
     remap = {old: new for new, old in enumerate(old_indices)}  # old -> 0..N-1
 
@@ -148,35 +211,28 @@ def compact_teleop(dataset_dir: Path) -> CompactResult | None:
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
 
+    fps = float(((meta or {}).get("info") or {}).get("fps") or 30)
     cameras: set[str] = set()
     lengths: dict[int, int] = {}  # new_index -> frame count
+    stats: dict[int, dict] = {}
+    calibrated: set[int] = set()
     offset = 0
     for old in old_indices:
         new = remap[old]
         dest_pq = staging / _parquet_rel(new)
         dest_pq.parent.mkdir(parents=True, exist_ok=True)
 
-        table = pq.read_table(episodes[old])
-        num_rows = table.num_rows
-        names = table.column_names
-        if "episode_index" in names:
-            t = table.schema.field("episode_index").type
-            table = table.set_column(
-                names.index("episode_index"),
-                "episode_index",
-                pa.array([new] * num_rows, type=t),
-            )
-        if "index" in names:
-            t = table.schema.field("index").type
-            table = table.set_column(
-                names.index("index"),
-                "index",
-                pa.array(range(offset, offset + num_rows), type=t),
-            )
+        table = _reindex_table(pq.read_table(episodes[old]), new, offset)
         pq.write_table(table, dest_pq)
+        if meta is not None:
+            from verlet.datasets._stats import compute_episode_stats
 
-        lengths[new] = num_rows
-        offset += num_rows
+            ep_stats = compute_episode_stats(table, fps)
+            if ep_stats:
+                stats[new] = ep_stats
+
+        lengths[new] = table.num_rows
+        offset += table.num_rows
 
         for camera, mp4 in _episode_videos(dataset_dir, old).items():
             cameras.add(camera)
@@ -184,15 +240,87 @@ def compact_teleop(dataset_dir: Path) -> CompactResult | None:
             dest_mp4.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(mp4), str(dest_mp4))
 
-    _regenerate_teleop_meta(dataset_dir, staging, remap, lengths, sorted(cameras))
+        cal = _episode_calibration(dataset_dir, old)
+        if cal is not None:
+            dest_cal = staging / "meta" / "calibration" / f"{_episode_stem(new)}.json"
+            dest_cal.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(cal), str(dest_cal))
+            calibrated.add(new)
+
+    if meta is not None:
+        _write_teleop_meta(staging, meta, lengths, sorted(cameras), stats, calibrated)
+    else:
+        _regenerate_teleop_meta(dataset_dir, staging, remap, lengths, sorted(cameras))
     _verify_teleop(staging, n, len(cameras))
+
+    # Top-level files that are not part of the episode tree (LICENSE, notes)
+    # ride along; only directories are rebuilt.
+    for leftover in dataset_dir.iterdir():
+        if leftover.is_file() and not (staging / leftover.name).exists():
+            shutil.move(str(leftover), str(staging / leftover.name))
 
     # Swap: replace the old tree with the compacted one. On any earlier failure
     # we leave staging in place for inspection; re-download (resumable) recovers.
     shutil.rmtree(dataset_dir)
     staging.rename(dataset_dir)
 
-    return CompactResult("teleop", n, n, gaps_closed=True, reindexed=True)
+    return CompactResult("teleop", n, n, gaps_closed=gappy, reindexed=True)
+
+
+def _write_teleop_meta(
+    staging: Path,
+    meta: dict,
+    lengths: dict[int, int],
+    cameras: list[str],
+    stats: dict[int, dict],
+    calibrated: set[int],
+) -> None:
+    """Write ``meta/`` for a ledger-only dataset from the manifest's inline
+    ``meta`` (source ``info.json`` + task string) and what landed on disk."""
+    dst_meta = staging / "meta"
+    dst_meta.mkdir(parents=True, exist_ok=True)
+    n = len(lengths)
+    task = meta.get("task") or ""
+
+    info: dict = dict(meta.get("info") or {})
+    info.setdefault("codebase_version", "v2.1")
+    info.setdefault("fps", 30)
+    info.setdefault("chunks_size", CHUNK_SIZE)
+    info.setdefault("data_path", "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet")
+    info.setdefault(
+        "video_path",
+        "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+    )
+    # Only the cameras that were actually downloaded (depth is not served).
+    features = dict(info.get("features") or {})
+    for key in list(features):
+        if key.startswith("observation.images.") and key[len("observation.images."):] not in cameras:
+            del features[key]
+    info["features"] = features
+    info["total_episodes"] = n
+    info["total_frames"] = sum(lengths.values())
+    info["total_videos"] = n * len(cameras)
+    info["total_chunks"] = ((n - 1) // CHUNK_SIZE + 1) if n else 0
+    info["total_tasks"] = 1
+    info["splits"] = {"train": f"0:{n}"}
+    (dst_meta / "info.json").write_text(json.dumps(info, indent=4) + "\n")
+
+    (dst_meta / "tasks.jsonl").write_text(
+        json.dumps({"task_index": 0, "task": task}) + "\n"
+    )
+    (dst_meta / "episodes.jsonl").write_text(
+        "".join(
+            # ``tasks: [0]`` (a task_index) matches what the backend writes.
+            json.dumps({"episode_index": i, "tasks": [0], "length": lengths[i]}) + "\n"
+            for i in sorted(lengths)
+        )
+    )
+    (dst_meta / "episodes_stats.jsonl").write_text(
+        "".join(
+            json.dumps({"episode_index": i, "stats": stats[i]}) + "\n"
+            for i in sorted(stats)
+        )
+    )
 
 
 def _regenerate_teleop_meta(
@@ -346,8 +474,10 @@ def compact_ego(dataset_dir: Path) -> CompactResult | None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def compact_dataset(dataset_dir: Path, modality: str) -> CompactResult | None:
+def compact_dataset(
+    dataset_dir: Path, modality: str, *, force: bool = False, meta: dict | None = None
+) -> CompactResult | None:
     """Dispatch to the teleop or ego compactor by modality."""
     if modality == "ego":
         return compact_ego(dataset_dir)
-    return compact_teleop(dataset_dir)
+    return compact_teleop(dataset_dir, force=force, meta=meta)
