@@ -1,6 +1,15 @@
-"""Shared download engine for ego and teleop datasets."""
+"""Shared download engine for ego and teleop datasets.
+
+Every file goes through :func:`download_file`, which is where the robustness
+lives: bytes stream into ``<name>.part``, the byte count is checked against
+``Content-Length``, and only then is the file renamed into place — so a file
+under its final name is complete by construction and a re-run can skip it on
+``exists()`` alone. Transient failures (transport errors, 5xx, 429) retry
+with backoff; 403/404 do not.
+"""
 import asyncio
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 from urllib.parse import urlparse
@@ -19,20 +28,28 @@ from rich.progress import (
 
 CHUNK_SIZE = 1024 * 256
 DEFAULT_TIMEOUT = httpx.Timeout(300.0, connect=30.0)
+RETRY_BACKOFF_SECONDS = (1.0, 4.0, 16.0)  # 3 retries after the first attempt
+
+
+class OptionalMissing(Exception):
+    """An optional file 404'd — counts as skipped, not failed."""
+
+
+class Expired(Exception):
+    """A presigned URL was refused (403) — the manifest has expired."""
 
 
 @dataclass
 class DownloadPlanItem:
     """A pre-resolved download: URL already presigned, local path fixed.
 
-    Used by the training-bundle flow which knows the final filename up front
-    (`video.mp4`, `poses.hdf5`, `depth.mkv`) and already has all presigned
-    URLs from a single `/training-bundle` call per segment. Bypasses the
-    `presign_fn` round-trip path used by the legacy per-asset downloader.
+    ``optional`` marks files the server presigns without an existence check
+    (per-episode calibration); a 404 on one of those is "absent", not an error.
     """
 
     url: str
     local_path: Path
+    optional: bool = False
 
 
 @dataclass
@@ -42,6 +59,7 @@ class DownloadResult:
     downloaded: int
     skipped: int
     failed: int
+    failures: list[tuple[Path, str]] = field(default_factory=list)
 
 
 PresignFn = Callable[[str], Awaitable[str]]
@@ -64,30 +82,69 @@ def _apply_url_extension(local_path: Path, url: str) -> Path:
 
 
 def _should_skip(local_path: Path, skip_existing: bool) -> bool:
-    if not skip_existing:
-        return False
-    try:
-        return local_path.exists() and local_path.stat().st_size > 0
-    except OSError:
-        return False
+    # A file under its final name was renamed there only after its byte count
+    # matched Content-Length, so existence is proof of completeness.
+    return skip_existing and local_path.exists()
+
+
+def _retryable(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code == 429 or code >= 500
+    return False
+
+
+async def _stream_once(client: httpx.AsyncClient, url: str, dest: Path) -> int:
+    part = dest.with_name(dest.name + ".part")
+    written = 0
+    async with client.stream("GET", url) as resp:
+        resp.raise_for_status()
+        expected = resp.headers.get("content-length")
+        with open(part, "wb") as f:
+            async for chunk in resp.aiter_bytes(chunk_size=CHUNK_SIZE):
+                f.write(chunk)
+                written += len(chunk)
+    if expected is not None and written != int(expected):
+        part.unlink(missing_ok=True)
+        raise httpx.TransportError(
+            f"truncated: got {written} of {expected} bytes for {dest.name}"
+        )
+    os.replace(part, dest)
+    return written
 
 
 async def download_file(
     client: httpx.AsyncClient,
     url: str,
     dest: Path,
+    *,
+    optional: bool = False,
 ) -> int:
-    """Download a single file from a presigned URL. Returns bytes written."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    """Download one presigned URL to ``dest`` atomically. Returns bytes written.
 
-    written = 0
-    async with client.stream("GET", url) as resp:
-        resp.raise_for_status()
-        with open(dest, "wb") as f:
-            async for chunk in resp.aiter_bytes(chunk_size=CHUNK_SIZE):
-                f.write(chunk)
-                written += len(chunk)
-    return written
+    Retries transport errors / 5xx / 429 with backoff. Raises
+    :class:`OptionalMissing` on a 404 of an optional file and
+    :class:`Expired` on 403; anything else propagates after the last retry.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    for attempt, delay in enumerate((*RETRY_BACKOFF_SECONDS, None)):
+        try:
+            return await _stream_once(client, url, dest)
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            if code == 404 and optional:
+                raise OptionalMissing(dest.name) from exc
+            if code == 403:
+                raise Expired(dest.name) from exc
+            if delay is None or not _retryable(exc):
+                raise
+        except httpx.TransportError:
+            if delay is None:
+                raise
+        await asyncio.sleep(delay)
+    raise AssertionError("unreachable")
 
 
 def _progress() -> Progress:
@@ -100,6 +157,56 @@ def _progress() -> Progress:
         TimeElapsedColumn(),
         TimeRemainingColumn(),
     )
+
+
+async def _run_plan(
+    plan: list[tuple[Path, Callable[[], Awaitable[tuple[str, Path, bool]]]]],
+    parallel: int,
+    skip_existing: bool,
+) -> DownloadResult:
+    """Drive a list of ``(local_path, resolve)`` pairs; ``resolve`` yields the
+    final ``(url, local_path, optional)`` once any presign step has run."""
+    result = DownloadResult(0, 0, 0)
+    semaphore = asyncio.Semaphore(parallel)
+    expired = False
+
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        with _progress() as progress:
+            overall = progress.add_task(f"Downloading {len(plan)} files", total=len(plan))
+
+            async def one(local_path: Path, resolve) -> None:
+                nonlocal expired
+                async with semaphore:
+                    try:
+                        if _should_skip(local_path, skip_existing):
+                            result.skipped += 1
+                            return
+                        url, resolved, optional = await resolve()
+                        if _should_skip(resolved, skip_existing):
+                            result.skipped += 1
+                            return
+                        await download_file(client, url, resolved, optional=optional)
+                        result.downloaded += 1
+                    except OptionalMissing:
+                        result.skipped += 1
+                    except Expired as exc:
+                        expired = True
+                        result.failed += 1
+                        result.failures.append((local_path, str(exc)))
+                    except Exception as exc:
+                        result.failed += 1
+                        result.failures.append((local_path, f"{type(exc).__name__}: {exc}"))
+                    finally:
+                        progress.advance(overall)
+
+            await asyncio.gather(*(one(p, r) for p, r in plan), return_exceptions=True)
+
+    if expired:
+        Console().print(
+            "[yellow]Some download URLs have expired.[/yellow] Re-run the same "
+            "command to fetch a fresh manifest and resume; completed files are kept."
+        )
+    return result
 
 
 async def download_files(
@@ -130,53 +237,23 @@ async def download_files(
 
     if dry_run:
         console = Console()
-        console.print(
-            f"\n[bold]Would download {len(plan)} files to {dest_dir}[/bold]\n"
-        )
+        console.print(f"\n[bold]Would download {len(plan)} files to {dest_dir}[/bold]\n")
         for key, local_path in plan[:20]:
             console.print(f"  {local_path}")
         if len(plan) > 20:
             console.print(f"  ... and {len(plan) - 20} more")
         return DownloadResult(0, 0, 0)
 
-    downloaded = 0
-    skipped = 0
-    failed = 0
-    semaphore = asyncio.Semaphore(parallel)
+    def _resolver(key: str, local_path: Path):
+        async def resolve() -> tuple[str, Path, bool]:
+            url = await presign_fn(key)
+            return url, _apply_url_extension(local_path, url), False
 
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-        with _progress() as progress:
-            overall = progress.add_task(
-                f"Downloading {len(plan)} files", total=len(plan)
-            )
+        return resolve
 
-            async def one(key: str, local_path: Path) -> None:
-                nonlocal downloaded, skipped, failed
-                async with semaphore:
-                    try:
-                        # Cheap upfront skip — works when the destination
-                        # filename is already set (no extension inference
-                        # needed). Saves a presign round-trip on re-runs.
-                        if _should_skip(local_path, skip_existing):
-                            skipped += 1
-                            return
-                        url = await presign_fn(key)
-                        resolved = _apply_url_extension(local_path, url)
-                        if _should_skip(resolved, skip_existing):
-                            skipped += 1
-                            return
-                        await download_file(client, url, resolved)
-                        downloaded += 1
-                    except Exception:
-                        failed += 1
-                    finally:
-                        progress.advance(overall)
-
-            await asyncio.gather(
-                *(one(k, p) for k, p in plan), return_exceptions=True
-            )
-
-    return DownloadResult(downloaded, skipped, failed)
+    return await _run_plan(
+        [(p, _resolver(k, p)) for k, p in plan], parallel, skip_existing
+    )
 
 
 async def download_resolved(
@@ -186,41 +263,18 @@ async def download_resolved(
 ) -> DownloadResult:
     """Download pre-resolved (URL, local_path) pairs.
 
-    Used by the training-bundle flow where the CLI has already fetched
-    presigned URLs in bulk and knows the final filename for each file
-    (`video.mp4` / `depth.mkv` / `poses.hdf5`). No extension inference, no
-    presign round-trips.
+    Used by the showcase / purchase manifest flows where the CLI already has
+    every presigned URL and the final filename for each file.
     """
     if not items:
         return DownloadResult(0, 0, 0)
 
-    downloaded = 0
-    skipped = 0
-    failed = 0
-    semaphore = asyncio.Semaphore(parallel)
+    def _resolver(item: DownloadPlanItem):
+        async def resolve() -> tuple[str, Path, bool]:
+            return item.url, item.local_path, item.optional
 
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-        with _progress() as progress:
-            overall = progress.add_task(
-                f"Downloading {len(items)} files", total=len(items)
-            )
+        return resolve
 
-            async def one(item: DownloadPlanItem) -> None:
-                nonlocal downloaded, skipped, failed
-                async with semaphore:
-                    try:
-                        if _should_skip(item.local_path, skip_existing):
-                            skipped += 1
-                            return
-                        await download_file(client, item.url, item.local_path)
-                        downloaded += 1
-                    except Exception:
-                        failed += 1
-                    finally:
-                        progress.advance(overall)
-
-            await asyncio.gather(
-                *(one(i) for i in items), return_exceptions=True
-            )
-
-    return DownloadResult(downloaded, skipped, failed)
+    return await _run_plan(
+        [(i.local_path, _resolver(i)) for i in items], parallel, skip_existing
+    )

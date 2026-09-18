@@ -7,6 +7,34 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-09-17
+
+### Added
+
+- **Ledger-only teleop datasets.** The backend no longer copies a dataset into
+  its own R2 prefix on publish; the download manifest points at each episode's
+  source upload and ships `meta` (source `info.json` + task) inline. The CLI
+  finalizes such downloads locally: parquets are renumbered `0..N-1`
+  (`episode_index`, global `index`, `task_index`), moved into the canonical
+  `data/chunk-XXX/` + `videos/chunk-XXX/` layout, and `meta/info.json`,
+  `tasks.jsonl`, `episodes.jsonl`, `episodes_stats.jsonl` are written from the
+  manifest and the parquets on disk. Files land directly in that canonical
+  layout, so a re-run skips everything already on disk and only re-finalizes
+  when something new arrived. Per-episode calibration is downloaded when the
+  rig shipped one.
+- **Manifest cache.** A showcase manifest is written to
+  `<out>/.<slug>.verlet-manifest.json` and reused on re-runs while its URLs are
+  valid (they now last 7 days), so resuming a multi-day pull no longer re-consumes
+  grant quota. `--force` ignores the cache.
+
+### Fixed
+
+- **Downloads are atomic and verified.** Files stream to `<name>.part` and are
+  renamed into place only after the byte count matches `Content-Length`; an
+  interrupted transfer no longer leaves a truncated file that a re-run treats
+  as complete. Transport errors, 5xx and 429 retry with backoff (1/4/16 s).
+  Failed files are listed by name at the end.
+
 ## [0.15.1] — 2026-07-07
 
 ### Fixed

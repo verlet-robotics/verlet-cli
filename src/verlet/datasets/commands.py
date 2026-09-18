@@ -312,6 +312,65 @@ verlet datasets download stanford-cooking-ego --variant processed
 """
 
 
+# Reuse a cached manifest only while its URLs have at least this long left.
+_MANIFEST_MIN_REMAINING_S = 3600
+
+
+def _manifest_cache_path(output: str, slug: str) -> Path:
+    # Beside the dataset dir, not inside it: finalization replaces that dir.
+    return Path(output) / f".{slug}.verlet-manifest.json"
+
+
+def _already_finalized(output_root: Path, inline_meta, result: DownloadResult) -> bool:
+    """A ledger-only re-run that downloaded nothing new and already has a
+    written meta/ — finalizing again would only rewrite every parquet."""
+    return bool(inline_meta) and result.downloaded == 0 and (
+        output_root / "meta" / "info.json"
+    ).is_file()
+
+
+def _load_cached_manifest(output: str, slug: str, params: dict) -> dict | None:
+    """A manifest fetched earlier for the same slug/params whose presigned
+    URLs are still good. Re-fetching is not free: every showcase manifest
+    call consumes grant quota and, on a billable grant, serves *fewer*
+    episodes the second time — so a resumed pull must reuse the first one."""
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    path = _manifest_cache_path(output, slug)
+    try:
+        cached = json.loads(path.read_text())
+        manifest = cached["manifest"]
+        # Python 3.10's fromisoformat rejects a trailing "Z".
+        expires = datetime.fromisoformat(manifest["urls_expire_at"].replace("Z", "+00:00"))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if cached.get("params") != params:
+        return None
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires - datetime.now(timezone.utc) < timedelta(seconds=_MANIFEST_MIN_REMAINING_S):
+        return None
+    return manifest
+
+
+def _save_cached_manifest(output: str, manifest: dict, params: dict) -> None:
+    import json
+
+    if not manifest.get("urls_expire_at"):
+        return  # nothing to reuse: URLs expire on the server's old 1 h schedule
+    path = _manifest_cache_path(output, manifest["dataset_slug"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"params": params, "manifest": manifest}))
+
+
+def _print_failures(result: DownloadResult) -> None:
+    for path, reason in result.failures[:20]:
+        console.print(f"  [red]failed[/red] {path}: {reason}")
+    if len(result.failures) > 20:
+        console.print(f"  … and {len(result.failures) - 20} more")
+
+
 def _showcase_download(
     profile_name: str,
     slug: str,
@@ -369,11 +428,17 @@ def _showcase_download(
             console.print("[dim]Download cancelled.[/dim]")
             return
 
-    manifest = asyncio.run(
-        fetch_showcase_download(
-            profile_name, slug, variant=variant, scope=scope, limit=limit
+    params = {"variant": variant, "scope": scope, "limit": limit}
+    manifest = None if force else _load_cached_manifest(output, slug, params)
+    if manifest is not None:
+        console.print("[dim]Reusing cached download manifest (URLs still valid).[/dim]")
+    else:
+        manifest = asyncio.run(
+            fetch_showcase_download(
+                profile_name, slug, variant=variant, scope=scope, limit=limit
+            )
         )
-    )
+        _save_cached_manifest(output, manifest, params)
     truncated = manifest.get("truncated")
     if truncated:
         # The grant's remaining quota was smaller than the dataset's
@@ -432,17 +497,28 @@ def _showcase_download(
     if result.failed:
         summary_parts.append(f"[red]{result.failed} failed[/red]")
     console.print(f"\n{', '.join(summary_parts)} -> {output_root}")
+    _print_failures(result)
 
     # Compaction: a quality filter (exclude_worst_pct / exclude_recovery_episodes)
     # drops episodes, leaving a gappy tree whose meta still describes the full
     # dataset — which the LeRobot loader can't open. Renumber to a contiguous,
     # canonical layout. Only on a fully successful download (a partial set would
-    # renumber wrongly); idempotent + ~free when there are no gaps.
-    if compact and result.failed == 0 and result.downloaded + result.skipped > 0:
+    # renumber wrongly); idempotent + ~free when there are no gaps. A ledger-only
+    # dataset (inline ``meta``) is always finalized: its parquets carry the
+    # station's numbering and no meta/ exists until this writes it.
+    inline_meta = manifest.get("meta")
+    if (
+        compact
+        and result.failed == 0
+        and result.downloaded + result.skipped > 0
+        and not _already_finalized(output_root, inline_meta, result)
+    ):
         from verlet.datasets.compact import compact_dataset
 
         try:
-            outcome = compact_dataset(output_root, modality)
+            outcome = compact_dataset(
+                output_root, modality, force=bool(inline_meta), meta=inline_meta
+            )
         except Exception as exc:  # never fail the download over compaction
             console.print(
                 f"[yellow]Note:[/yellow] downloaded files are intact, but "
@@ -451,10 +527,10 @@ def _showcase_download(
                 f"Staging left at {output_root.parent}/.{output_root.name}.compacting"
             )
             outcome = None
-        if outcome is not None and outcome.gaps_closed:
+        if outcome is not None and outcome.reindexed:
             console.print(
-                f"[green]compacted[/green] -> contiguous "
-                f"{outcome.units_after} {unit_word} (canonical layout)"
+                f"[green]finalized[/green] -> contiguous "
+                f"{outcome.units_after} {unit_word} (canonical LeRobot layout)"
             )
 
     if truncated and result.failed == 0:
@@ -779,6 +855,7 @@ def datasets_download(
         DownloadPlanItem(
             url=f["url"],
             local_path=output_root / f["path"],
+            optional=bool(f.get("optional")),
         )
         for f in manifest.get("files") or []
     ]
@@ -826,8 +903,31 @@ def datasets_download(
     if result.failed:
         summary_parts.append(f"[red]{result.failed} failed[/red]")
     console.print(f"\n{', '.join(summary_parts)} -> {output_root}")
+    _print_failures(result)
     if result.failed > 0:
         raise SystemExit(1)
+
+    # Ledger-only teleop dataset: files landed in the canonical layout but the
+    # parquets still carry the station's episode numbering and there is no
+    # meta/ yet — finalize from the manifest's inline ``meta``.
+    inline_meta = manifest.get("meta")
+    if (
+        inline_meta
+        and modality == "arm"
+        and not no_compact
+        and result.downloaded + result.skipped > 0
+        and not _already_finalized(output_root, inline_meta, result)
+    ):
+        from verlet.datasets.compact import compact_dataset
+
+        try:
+            compact_dataset(output_root, "arm", force=True, meta=inline_meta)
+            console.print("[green]finalized[/green] -> canonical LeRobot layout + meta/")
+        except Exception as exc:  # never fail the download over finalization
+            console.print(
+                f"[yellow]Note:[/yellow] downloaded files are intact, but "
+                f"finalization did not complete ({exc}). Re-run to retry."
+            )
 
 
 # ---------------------------------------------------------------------------

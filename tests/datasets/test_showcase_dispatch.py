@@ -388,3 +388,64 @@ def test_ego_command_removed(cli_runner, tmp_home):
     result = cli_runner.invoke(cli, ["ego", "list"])
     assert result.exit_code == 2
     assert "No such command" in result.output
+
+
+def test_download_showcase_reuses_cached_manifest_on_rerun(
+    cli_runner, respx_mock, tmp_home, tmp_path
+):
+    """A second run against the same output dir must not re-fetch the manifest
+    while its URLs are valid: every fetch consumes grant quota and, on a
+    billable grant, serves fewer episodes the second time."""
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import patch
+
+    from verlet.cli import cli
+    from verlet.download import DownloadResult
+
+    _seed_showcase_profile(tmp_home)
+    respx_mock.get(
+        "https://api.verlet.co/api/v1/showcase/datasets/teleop-ds"
+    ).respond(
+        200,
+        json={
+            "id": "teleop-ds", "slug": "teleop-ds", "title": "Teleop DS",
+            "modality": "teleop", "task_type": "fold", "robot_embodiment": "yam",
+            "episode_count": 1, "total_hours": 0.1, "effective_grants": [],
+        },
+    )
+    manifest_route = respx_mock.get(
+        "https://api.verlet.co/api/v1/showcase/datasets/teleop-ds/download"
+    ).respond(
+        200,
+        json={
+            "dataset_title": "Teleop DS", "dataset_slug": "teleop-ds",
+            "format": "lerobot-v2", "modality": "teleop", "variant": "processed",
+            "scope": "full",
+            "episodes": [{
+                "episode_index": 0,
+                "parquet_url": "https://signed.example/ep0.parquet",
+                "video_urls": [{"camera": "cam_high", "url": "https://signed.example/h.mp4"}],
+                "meta_urls": [],
+            }],
+            "segments": [],
+            "meta": {"info": {"fps": 30}, "task": "fold"},
+            "urls_expire_at": (datetime.now(timezone.utc) + timedelta(days=6)).isoformat(),
+        },
+    )
+
+    async def fake_download_resolved(items, parallel, skip_existing):  # noqa: ARG001
+        return DownloadResult(downloaded=0, skipped=len(items), failed=0)
+
+    args = ["datasets", "download", "teleop-ds", "-o", str(tmp_path), "-y"]
+    with (
+        patch("verlet.datasets.commands.download_resolved", side_effect=fake_download_resolved),
+        patch("verlet.datasets.commands.check_license_accepted", return_value=True),
+    ):
+        first = cli_runner.invoke(cli, args)
+        second = cli_runner.invoke(cli, args)
+
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    assert manifest_route.call_count == 1
+    assert "Reusing cached download manifest" in second.output
+    assert (tmp_path / ".teleop-ds.verlet-manifest.json").exists()
