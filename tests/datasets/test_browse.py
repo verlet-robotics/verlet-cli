@@ -9,10 +9,10 @@ from verlet.auth.credentials import upsert_profile
 from verlet.cli import cli
 
 EPISODES_URL = (
-    "https://api.verlet.co/api/platform/v1/catalog/datasets/imitate-cube/episodes"
+    "https://client-api.verlet.co/api/platform/v1/catalog/datasets/imitate-cube/episodes"
 )
 SEGMENTS_URL = (
-    "https://api.verlet.co/api/platform/v1/catalog/datasets/cooking-ego/segments"
+    "https://client-api.verlet.co/api/platform/v1/catalog/datasets/cooking-ego/segments"
 )
 
 
@@ -20,7 +20,7 @@ def _seed() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at="2099-01-01T00:00:00+00:00",

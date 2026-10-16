@@ -4,11 +4,13 @@ from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".verlet"
 TOKEN_FILE = CONFIG_DIR / "token.json"
-DEFAULT_API_URL = "https://api.verlet.co"
+DEFAULT_API_URL = "https://client-api.verlet.co"
 
 
 def get_api_url() -> str:
-    return _load_config().get("api_url", DEFAULT_API_URL)
+    url = _load_config().get("api_url", DEFAULT_API_URL)
+    # Legacy token.json written before the client API moved off api.verlet.co.
+    return DEFAULT_API_URL if url.rstrip("/") == "https://api.verlet.co" else url
 
 
 def get_token() -> str | None:

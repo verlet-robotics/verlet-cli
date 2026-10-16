@@ -24,7 +24,7 @@ def _seed_device_flow_default(tmp_home):
     creds.upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         # Far-future expiry so AuthenticatedClient skips the refresh path.
@@ -119,7 +119,7 @@ def test_revoke_clears_local(tmp_home, respx_mock, cli_runner):
     creds.upsert_profile(
         "default",
         kind="pat",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="pat_a_b",
         pat_id="f5b1a83c-1234-4abc-9def-aaaaaaaaaaaa",
         name="ci-token",

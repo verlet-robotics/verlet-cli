@@ -47,7 +47,7 @@ def test_browse_calls_research_bundles_path_anonymously(
 ):
     """`verlet bundles browse` GETs /catalog/research-bundles with NO Authorization header."""
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/research-bundles"
+        "https://client-api.verlet.co/api/platform/v1/catalog/research-bundles"
     ).mock(return_value=httpx.Response(200, json=SAMPLE_BUNDLES))
 
     result = cli_runner.invoke(cli, ["bundles", "browse"])
@@ -67,7 +67,7 @@ def test_browse_calls_research_bundles_path_anonymously(
 def test_browse_json_emits_valid_json(tmp_home, cli_runner, respx_mock):
     """`verlet bundles browse --json` writes parseable JSON to stdout."""
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/research-bundles"
+        "https://client-api.verlet.co/api/platform/v1/catalog/research-bundles"
     ).mock(return_value=httpx.Response(200, json=SAMPLE_BUNDLES))
 
     result = cli_runner.invoke(cli, ["bundles", "browse", "--json"])
@@ -83,7 +83,7 @@ def test_browse_json_emits_valid_json(tmp_home, cli_runner, respx_mock):
 def test_browse_limit_query_param(tmp_home, cli_runner, respx_mock):
     """`--limit 5` adds `?limit=5` to the GET."""
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/research-bundles"
+        "https://client-api.verlet.co/api/platform/v1/catalog/research-bundles"
     ).mock(return_value=httpx.Response(200, json={"items": []}))
 
     result = cli_runner.invoke(cli, ["bundles", "browse", "--limit", "5"])
@@ -104,7 +104,7 @@ def test_bundles_help_lists_browse(cli_runner):
 def test_browse_500_exits_nonzero_with_stderr(tmp_home, cli_runner, respx_mock):
     """Server 500 → CLI exits non-zero and prints a stderr error."""
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/research-bundles"
+        "https://client-api.verlet.co/api/platform/v1/catalog/research-bundles"
     ).mock(return_value=httpx.Response(500, text="upstream blew up"))
 
     result = cli_runner.invoke(cli, ["bundles", "browse"])

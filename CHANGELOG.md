@@ -7,6 +7,11 @@ and the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.16.1] — 2026-10-16
+
+### Changed
+- Default API is now `https://client-api.verlet.co` (the client API split off `api.verlet.co`). Profiles and legacy `token.json` files saved with `https://api.verlet.co` are redirected automatically; no re-login needed.
+
 ## [0.16.0] — 2026-09-17
 
 ### Added

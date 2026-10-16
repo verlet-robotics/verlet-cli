@@ -39,7 +39,7 @@ NEAR_FUTURE = "2099-01-02T00:00:00+00:00"
 
 def test_redeem_writes_bundle_grant_profile(tmp_home, cli_runner, respx_mock):
     """Successful redeem persists kind=bundle_grant with bundle_slug + expires_at."""
-    respx_mock.post(f"https://api.verlet.co{REDEEM_PATH}").mock(
+    respx_mock.post(f"https://client-api.verlet.co{REDEEM_PATH}").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -68,7 +68,7 @@ def test_redeem_writes_bundle_grant_profile(tmp_home, cli_runner, respx_mock):
 def test_redeem_idempotent_overwrites_existing(tmp_home, cli_runner, respx_mock):
     """Re-redeeming overwrites the local profile entry idempotently (D-BUNDLE2)."""
     # First redeem.
-    respx_mock.post(f"https://api.verlet.co{REDEEM_PATH}").mock(
+    respx_mock.post(f"https://client-api.verlet.co{REDEEM_PATH}").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -84,7 +84,7 @@ def test_redeem_idempotent_overwrites_existing(tmp_home, cli_runner, respx_mock)
     assert creds.get_profile("default")["access_token"] == "first.token"
 
     # Server reissues a fresh token for the same code (D-BUNDLE2 idempotent).
-    respx_mock.post(f"https://api.verlet.co{REDEEM_PATH}").mock(
+    respx_mock.post(f"https://client-api.verlet.co{REDEEM_PATH}").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -108,7 +108,7 @@ def test_redeem_idempotent_overwrites_existing(tmp_home, cli_runner, respx_mock)
 
 def test_redeem_410_prints_detail_to_stderr_exit1(tmp_home, cli_runner, respx_mock):
     """Server 410 Gone → CLI surfaces the detail on stderr + exits 1."""
-    respx_mock.post(f"https://api.verlet.co{REDEEM_PATH}").mock(
+    respx_mock.post(f"https://client-api.verlet.co{REDEEM_PATH}").mock(
         return_value=httpx.Response(
             410, json={"detail": "This code has expired"}
         )
@@ -123,7 +123,7 @@ def test_redeem_410_prints_detail_to_stderr_exit1(tmp_home, cli_runner, respx_mo
 
 def test_redeem_404_prints_invalid_code_exit1(tmp_home, cli_runner, respx_mock):
     """Server 404 → "Invalid code" on stderr + exit 1."""
-    respx_mock.post(f"https://api.verlet.co{REDEEM_PATH}").mock(
+    respx_mock.post(f"https://client-api.verlet.co{REDEEM_PATH}").mock(
         return_value=httpx.Response(404, json={"detail": "Invalid code"})
     )
 
@@ -135,7 +135,7 @@ def test_redeem_404_prints_invalid_code_exit1(tmp_home, cli_runner, respx_mock):
 
 def test_auth_status_recognizes_bundle_grant(tmp_home, cli_runner, respx_mock):
     """After redeem, `verlet auth status` shows the new profile correctly."""
-    respx_mock.post(f"https://api.verlet.co{REDEEM_PATH}").mock(
+    respx_mock.post(f"https://client-api.verlet.co{REDEEM_PATH}").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -158,7 +158,7 @@ def test_auth_status_recognizes_bundle_grant(tmp_home, cli_runner, respx_mock):
 
 def test_redeem_targets_named_profile(tmp_home, cli_runner, respx_mock):
     """`--profile staging` writes to the named profile, not the default."""
-    respx_mock.post(f"https://api.verlet.co{REDEEM_PATH}").mock(
+    respx_mock.post(f"https://client-api.verlet.co{REDEEM_PATH}").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -187,7 +187,7 @@ def test_redeem_targets_named_profile(tmp_home, cli_runner, respx_mock):
 @pytest.mark.skipif(os.name == "nt", reason="POSIX-only chmod")
 def test_credentials_file_mode_remains_0600(tmp_home, cli_runner, respx_mock):
     """credentials.json mode is exactly 0o600 after redeem (Phase 28 invariant)."""
-    respx_mock.post(f"https://api.verlet.co{REDEEM_PATH}").mock(
+    respx_mock.post(f"https://client-api.verlet.co{REDEEM_PATH}").mock(
         return_value=httpx.Response(
             200,
             json={

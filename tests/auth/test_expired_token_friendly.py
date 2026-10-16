@@ -27,7 +27,7 @@ def _seed(kind: str, expires_at: str = PAST) -> None:
     upsert_profile(
         "default",
         kind=kind,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="dead.jwt.value",
         refresh_token="dead-rt",
         expires_at=expires_at,
@@ -124,7 +124,7 @@ def test_catalog_list_with_expired_pat_falls_back_to_anonymous(
     catalog_api._EXPIRY_HINT_EMITTED.clear()
     _seed(kind="pat")
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets"
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets"
     ).mock(
         return_value=httpx.Response(
             200,
@@ -152,7 +152,7 @@ def test_catalog_browse_emits_expiry_hint_once_per_process(
     catalog_api._EXPIRY_HINT_EMITTED.clear()
     _seed(kind="pat")
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets"
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets"
     ).mock(
         return_value=httpx.Response(
             200,
@@ -176,7 +176,7 @@ def test_catalog_browse_with_unexpired_pat_keeps_bearer(
     catalog_api._EXPIRY_HINT_EMITTED.clear()
     _seed(kind="pat", expires_at=FAR_FUTURE)
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets"
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets"
     ).mock(
         return_value=httpx.Response(
             200,

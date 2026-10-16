@@ -73,7 +73,7 @@ def test_full_device_flow_cycle(tmp_home, respx_mock, mocked_webbrowser, monkeyp
     )
 
     result = device_flow_login(
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         profile_name="default",
         no_browser=False,
     )
@@ -87,7 +87,7 @@ def test_full_device_flow_cycle(tmp_home, respx_mock, mocked_webbrowser, monkeyp
     assert profile["identity"]["email"] == "jane@example.com"
     assert profile["identity"]["display_name"] == "Jane Doe"
     assert "expires_at" in profile
-    assert profile["api_url"] == "https://api.verlet.co"
+    assert profile["api_url"] == "https://client-api.verlet.co"
     assert profile["active_namespace"]["slug"] == "jane"
     # Browser was opened (no_browser=False).
     assert mocked_webbrowser.called
@@ -140,7 +140,7 @@ def test_no_browser_prints_url(
     )
 
     device_flow_login(
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         profile_name="default",
         no_browser=True,
     )
@@ -206,7 +206,7 @@ def test_slow_down_bumps_interval(
     )
 
     device_flow_login(
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         profile_name="default",
         no_browser=True,
     )

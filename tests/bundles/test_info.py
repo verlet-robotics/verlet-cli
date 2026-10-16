@@ -37,7 +37,7 @@ def _seed_default_profile() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at=FAR_FUTURE,
@@ -102,7 +102,7 @@ def test_info_calls_authenticated_detail_endpoint(
     bundle_id = "stanford-egocentric-2024"
 
     route = respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_research_detail(bundle_id)))
 
     result = cli_runner.invoke(cli, ["bundles", "info", bundle_id])
@@ -126,7 +126,7 @@ def test_info_json_outputs_valid_json(tmp_home, cli_runner, respx_mock):
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_research_detail(bundle_id)))
 
     result = cli_runner.invoke(cli, ["bundles", "info", bundle_id, "--json"])
@@ -144,7 +144,7 @@ def test_info_404_prints_bundle_not_found(tmp_home, cli_runner, respx_mock):
     bundle_id = "nonexistent-bundle"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(404, json={"detail": "Not Found"}))
 
     result = cli_runner.invoke(cli, ["bundles", "info", bundle_id])
@@ -159,7 +159,7 @@ def test_info_401_prints_verbatim_auth_error(tmp_home, cli_runner, respx_mock):
     bundle_id = "any-bundle"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(401, json={"detail": "Token expired"}))
 
     result = cli_runner.invoke(cli, ["bundles", "info", bundle_id])
@@ -208,7 +208,7 @@ def test_info_dataset_formats_inline(tmp_home, cli_runner, respx_mock):
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_research_detail(bundle_id)))
 
     result = cli_runner.invoke(cli, ["bundles", "info", bundle_id])

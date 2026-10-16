@@ -41,7 +41,7 @@ def _seed_default_profile(*, hf_token: str | None = None) -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at="2099-01-01T00:00:00+00:00",
@@ -147,14 +147,14 @@ def test_push_posts_destination_url_and_hf_token(
     push_id = "11111111-2222-3333-4444-555555555555"
 
     push_route = respx_mock.post(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/push"
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/push"
     ).respond(
         202,
         json={"push_id": push_id, "status": "pending"},
     )
     # /pushes/recent — return one completed entry on the very first poll.
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/pushes/recent"
+        "https://client-api.verlet.co/api/platform/v1/downloads/pushes/recent"
     ).respond(
         200,
         json={"pushes": [{"push_id": push_id, "status": "completed", "progress": 100}]},
@@ -189,11 +189,11 @@ def test_push_polls_recent_until_completed(
     push_id = "abcd1234"
 
     respx_mock.post(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/push"
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/push"
     ).respond(202, json={"push_id": push_id, "status": "pending"})
     # First poll: status=pending. Second: completed.
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/pushes/recent"
+        "https://client-api.verlet.co/api/platform/v1/downloads/pushes/recent"
     ).mock(
         side_effect=[
             httpx.Response(
@@ -244,7 +244,7 @@ def test_push_400_prints_detail_and_exits_nonzero(
     slug = "my-slug"
 
     respx_mock.post(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/push"
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/push"
     ).respond(400, json={"detail": "Only huggingface:// destination_url is supported"})
 
     result = cli_runner.invoke(

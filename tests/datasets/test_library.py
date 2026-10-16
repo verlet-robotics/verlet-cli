@@ -28,7 +28,7 @@ def _seed_default_profile(kind: str = "device_flow") -> None:
     upsert_profile(
         "default",
         kind=kind,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at=FAR_FUTURE,
@@ -71,7 +71,7 @@ def _sample_bundle(slug: str = "stanford-egocentric-2024") -> dict:
 def test_library_calls_authenticated_endpoint(tmp_home, cli_runner, respx_mock):
     """`verlet datasets library` GETs /downloads/library with Authorization."""
     _seed_default_profile()
-    route = respx_mock.get(f"https://api.verlet.co{LIBRARY_PATH}").mock(
+    route = respx_mock.get(f"https://client-api.verlet.co{LIBRARY_PATH}").mock(
         return_value=httpx.Response(
             200, json={"datasets": [_sample_dataset()], "count": 1, "bundles": []}
         )
@@ -89,7 +89,7 @@ def test_library_calls_authenticated_endpoint(tmp_home, cli_runner, respx_mock):
 def test_library_renders_datasets_and_bundles(tmp_home, cli_runner, respx_mock):
     """Both the purchased-datasets and bundles sections surface."""
     _seed_default_profile()
-    respx_mock.get(f"https://api.verlet.co{LIBRARY_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{LIBRARY_PATH}").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -109,7 +109,7 @@ def test_library_renders_datasets_and_bundles(tmp_home, cli_runner, respx_mock):
 def test_library_empty_message(tmp_home, cli_runner, respx_mock):
     """An empty library renders the dim 'browse the catalog' hint."""
     _seed_default_profile()
-    respx_mock.get(f"https://api.verlet.co{LIBRARY_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{LIBRARY_PATH}").mock(
         return_value=httpx.Response(
             200, json={"datasets": [], "count": 0, "bundles": []}
         )
@@ -124,7 +124,7 @@ def test_library_json_flag(tmp_home, cli_runner, respx_mock):
     """`--json` emits the raw LibraryListResponse body."""
     _seed_default_profile()
     body = {"datasets": [_sample_dataset()], "count": 1, "bundles": []}
-    respx_mock.get(f"https://api.verlet.co{LIBRARY_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{LIBRARY_PATH}").mock(
         return_value=httpx.Response(200, json=body)
     )
 
@@ -156,7 +156,7 @@ def test_library_unauthenticated(tmp_home, cli_runner, respx_mock):
 def test_library_401_friendly_error(tmp_home, cli_runner, respx_mock):
     """A backend 401 surfaces as a friendly error, not a Python traceback."""
     _seed_default_profile()
-    respx_mock.get(f"https://api.verlet.co{LIBRARY_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{LIBRARY_PATH}").mock(
         return_value=httpx.Response(401, json={"detail": "Token expired"})
     )
 

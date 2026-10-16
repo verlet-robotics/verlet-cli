@@ -13,18 +13,18 @@ import httpx
 from verlet.auth.credentials import upsert_profile
 from verlet.cli import cli
 
-DEST_BASE = "https://api.verlet.co/api/platform/v1/downloads/destinations"
+DEST_BASE = "https://client-api.verlet.co/api/platform/v1/downloads/destinations"
 DEST_ID = "00000000-0000-0000-0000-0000000000d1"
 SLUG = "imitate-cube"
-PUSH_URL = f"https://api.verlet.co/api/platform/v1/downloads/{SLUG}/push"
-RECENT_URL = "https://api.verlet.co/api/platform/v1/downloads/pushes/recent"
+PUSH_URL = f"https://client-api.verlet.co/api/platform/v1/downloads/{SLUG}/push"
+RECENT_URL = "https://client-api.verlet.co/api/platform/v1/downloads/pushes/recent"
 
 
 def _seed() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at="2099-01-01T00:00:00+00:00",

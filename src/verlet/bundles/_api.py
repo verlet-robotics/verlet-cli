@@ -28,7 +28,7 @@ from verlet._http_errors import friendly_http
 if TYPE_CHECKING:
     from verlet.api_client import AuthenticatedClient
 
-DEFAULT_BASE = os.environ.get("VERLET_API_URL", "https://api.verlet.co")
+DEFAULT_BASE = os.environ.get("VERLET_API_URL", "https://client-api.verlet.co")
 
 CATALOG_RESEARCH_BUNDLES_PATH = "/api/platform/v1/catalog/research-bundles"
 

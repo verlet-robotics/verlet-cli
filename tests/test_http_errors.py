@@ -12,7 +12,7 @@ facing output:
     Traceback (most recent call last):
       ... 30+ frames ...
     httpx.HTTPStatusError: Client error '404 Not Found' for url
-    'https://api.verlet.co/api/platform/v1/catalog/datasets/...'
+    'https://client-api.verlet.co/api/platform/v1/catalog/datasets/...'
 
 Fix: wrap each call site with ``verlet._http_errors.friendly_http(context)``,
 which converts both exception types to ``click.ClickException`` carrying
@@ -97,7 +97,7 @@ def test_datasets_info_404_renders_friendly_error(respx_mock, cli_runner, tmp_ho
     with no profile the command takes the anonymous platform-catalog path.
     """
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/bad-slug"
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/bad-slug"
     ).mock(
         return_value=httpx.Response(
             404, json={"detail": "Dataset 'bad-slug' not found"}
@@ -113,7 +113,7 @@ def test_datasets_info_404_renders_friendly_error(respx_mock, cli_runner, tmp_ho
 def test_bundles_browse_500_renders_friendly_error(respx_mock, cli_runner):
     """``verlet bundles browse`` on 500 → friendly error, no traceback."""
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/research-bundles"
+        "https://client-api.verlet.co/api/platform/v1/catalog/research-bundles"
     ).mock(
         return_value=httpx.Response(
             500, json={"detail": "internal server error"}

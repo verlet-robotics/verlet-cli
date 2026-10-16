@@ -34,7 +34,7 @@ def _seed_default_profile() -> None:
     creds.upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at="2099-01-01T00:00:00+00:00",
@@ -46,7 +46,7 @@ def _seed_named_profile(name: str) -> None:
     creds.upsert_profile(
         name,
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at="2099-01-01T00:00:00+00:00",

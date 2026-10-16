@@ -22,7 +22,7 @@ def test_device_flow_status(tmp_home, respx_mock, cli_runner):
     creds.upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value-very-long-string-XYZ9",
         refresh_token="rt.value",
         expires_at=_far_future_iso(),
@@ -58,7 +58,7 @@ def test_pat_status(tmp_home, respx_mock, cli_runner):
     creds.upsert_profile(
         "ci",
         kind="pat",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="pat_a1b2c3d4e5f60718_secret_xyz_Xkj9",
         pat_id="f5b1a83c-1234-4abc-9def-aaaaaaaaaaaa",
         name="ci-token",
@@ -96,7 +96,7 @@ def test_showcase_status(tmp_home, cli_runner):
     creds.upsert_profile(
         "showcase-old",
         kind="showcase_access_code",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="showcase-jwt-XYZ4",
         customer_name="Acme Robotics",
         expires_at=_far_future_iso(),
@@ -114,7 +114,7 @@ def test_json_output(tmp_home, cli_runner):
     creds.upsert_profile(
         "default",
         kind="pat",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="pat_a_b",
         pat_id="abcd",
         name="ci-token",
@@ -128,7 +128,7 @@ def test_json_output(tmp_home, cli_runner):
     parsed = json.loads(result.output)
     assert parsed["profile"] == "default"
     assert parsed["kind"] == "pat"
-    assert parsed["api_url"] == "https://api.verlet.co"
+    assert parsed["api_url"] == "https://client-api.verlet.co"
     assert parsed["expired"] is False
     assert parsed["scopes"] == ["read:datasets"]
 
@@ -166,7 +166,7 @@ def test_fresh_showcase_token_does_not_show_soon_warning(tmp_home, cli_runner):
     creds.upsert_profile(
         "default",
         kind="showcase_access_code",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="sc.jwt.value",
         expires_at=_expires_in(23 * 3600 + 59 * 60),  # 23h 59m
         customer_name="Demo",
@@ -186,7 +186,7 @@ def test_showcase_token_within_2h_shows_soon_warning_with_kind_flag(
     creds.upsert_profile(
         "default",
         kind="showcase_access_code",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="sc.jwt.value",
         expires_at=_expires_in(45 * 60),  # 45 minutes left
         customer_name="Demo",
@@ -203,7 +203,7 @@ def test_device_flow_within_1h_shows_soon_warning(tmp_home, cli_runner):
     creds.upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="df.jwt.value",
         refresh_token="rt",
         expires_at=_expires_in(30 * 60),  # 30 minutes left
@@ -224,7 +224,7 @@ def test_device_flow_within_8h_no_warning_because_just_logged_in(
     creds.upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="df.jwt.value",
         refresh_token="rt",
         expires_at=_expires_in(4 * 3600),
@@ -242,7 +242,7 @@ def test_pat_within_24h_shows_soon_warning_with_tokens_create(
     creds.upsert_profile(
         "default",
         kind="pat",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="pat_a_b",
         pat_id="abcd",
         name="ci-token",

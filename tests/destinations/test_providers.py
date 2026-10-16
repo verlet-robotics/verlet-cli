@@ -29,7 +29,7 @@ _PROVIDERS = [
 
 def test_providers_lists_auth_kinds(tmp_home, cli_runner, respx_mock):
     """`destinations providers` lists providers anonymously (no Bearer header)."""
-    route = respx_mock.get(f"https://api.verlet.co{PROVIDERS_PATH}").mock(
+    route = respx_mock.get(f"https://client-api.verlet.co{PROVIDERS_PATH}").mock(
         return_value=httpx.Response(200, json=_PROVIDERS)
     )
 
@@ -44,7 +44,7 @@ def test_providers_lists_auth_kinds(tmp_home, cli_runner, respx_mock):
 
 def test_providers_json_flag(tmp_home, cli_runner, respx_mock):
     """`--json` emits the raw provider list."""
-    respx_mock.get(f"https://api.verlet.co{PROVIDERS_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{PROVIDERS_PATH}").mock(
         return_value=httpx.Response(200, json=_PROVIDERS)
     )
 
@@ -61,7 +61,7 @@ def test_providers_table_shows_credential_keys_from_static_fallback(
     fallback fills the Credentials column so users discover which keys
     each manual provider needs without leaving the terminal.
     """
-    respx_mock.get(f"https://api.verlet.co{PROVIDERS_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{PROVIDERS_PATH}").mock(
         return_value=httpx.Response(
             200,
             json=[
@@ -97,7 +97,7 @@ def test_providers_table_prefers_server_manual_fields_over_fallback(
 ):
     """Server-advertised manual_fields drive the Credentials column. The
     fallback is a backstop, not an override."""
-    respx_mock.get(f"https://api.verlet.co{PROVIDERS_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{PROVIDERS_PATH}").mock(
         return_value=httpx.Response(
             200,
             json=[

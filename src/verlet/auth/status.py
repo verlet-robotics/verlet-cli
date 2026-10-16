@@ -127,7 +127,7 @@ def render_status(
     name = resolve_profile_name(profile_name)
     profile = require_profile(name)
     kind = profile.get("kind", "")
-    api_url = profile.get("api_url") or "https://api.verlet.co"
+    api_url = profile.get("api_url") or "https://client-api.verlet.co"
 
     if refresh:
         profile = _refresh_identity(name, profile)

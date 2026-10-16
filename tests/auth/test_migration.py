@@ -15,7 +15,7 @@ def test_legacy_migration(tmp_home):
             {
                 "token": "showcase-jwt-abc",
                 "customer_name": "Acme Robotics",
-                "api_url": "https://api.verlet.co",
+                "api_url": "https://client-api.verlet.co",
             }
         )
     )
@@ -32,7 +32,7 @@ def test_legacy_migration(tmp_home):
     assert default["kind"] == "showcase_access_code"
     assert default["access_token"] == "showcase-jwt-abc"
     assert default["customer_name"] == "Acme Robotics"
-    assert default["api_url"] == "https://api.verlet.co"
+    assert default["api_url"] == "https://client-api.verlet.co"
     assert "migrated_at" in default
 
     # Lossless: legacy file still present after migration.

@@ -36,7 +36,7 @@ def _seed_default_profile() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at=FAR_FUTURE,
@@ -93,10 +93,10 @@ def test_export_writes_portable_json(tmp_home, cli_runner, respx_mock):
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
     respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(
             200, json=_arm_manifest_with_files("kitchen-pickplace")
@@ -142,10 +142,10 @@ def test_export_default_path_uses_bundle_id(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
     respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(
             200, json=_arm_manifest_with_files("kitchen-pickplace")
@@ -176,10 +176,10 @@ def test_export_format_query_param_threaded_through(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
     manifest_route = respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(
             200,
@@ -218,7 +218,7 @@ def test_export_404_unknown_bundle_exits_1(
     bundle_id = "definitely-not-a-real-bundle"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(404, json={"detail": "Not Found"}))
 
     out_path = tmp_home / "would-not-write.json"
@@ -244,10 +244,10 @@ def test_export_exported_at_iso_parseable(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
     respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(
             200, json=_arm_manifest_with_files("kitchen-pickplace")

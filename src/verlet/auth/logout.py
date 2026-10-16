@@ -33,7 +33,7 @@ def logout(profile_name: str) -> None:
         raise SystemExit(1)
 
     kind = profile.get("kind")
-    api_url = profile.get("api_url") or "https://api.verlet.co"
+    api_url = profile.get("api_url") or "https://client-api.verlet.co"
 
     if kind == "pat":
         pat_id = profile.get("pat_id")

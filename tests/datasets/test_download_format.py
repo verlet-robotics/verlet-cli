@@ -108,7 +108,7 @@ def _seed_default_profile(_tmp_home, *, token: str = "t0k3n") -> None:
         "default",
         kind="device_flow",
         access_token=token,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
 
 
@@ -130,7 +130,7 @@ def test_poll_conversion_job_processing_then_completed_returns_manifest(
     }
     # respx returns each .respond(...) call in registration order.
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs/job-1",
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs/job-1",
     ).mock(
         side_effect=[
             httpx.Response(
@@ -193,7 +193,7 @@ def test_poll_conversion_job_failed_writes_stderr_and_exits_nonzero(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs/job-2",
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs/job-2",
     ).respond(
         200,
         json={
@@ -238,7 +238,7 @@ def test_poll_conversion_job_polls_with_3s_interval(respx_mock, tmp_home):
     assert POLL_INTERVAL_SECONDS == 3.0  # Locked in module constant.
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs/job-3",
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs/job-3",
     ).mock(
         side_effect=[
             httpx.Response(
@@ -295,7 +295,7 @@ def test_poll_conversion_job_verbose_streams_log_lines_to_stderr(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs/job-4",
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs/job-4",
     ).mock(
         side_effect=[
             httpx.Response(
@@ -358,7 +358,7 @@ def test_poll_conversion_job_failed_without_failed_stage(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs/job-5",
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs/job-5",
     ).respond(
         200,
         json={
@@ -419,12 +419,12 @@ def test_download_format_hdf5_polls_and_completes(
 
     slug = "pick-and-place-yam-v3"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_arm_detail(slug))
 
     # Manifest endpoint returns 202 + job_id (Manifest202Response).
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
     ).respond(
         202,
         json={
@@ -436,7 +436,7 @@ def test_download_format_hdf5_polls_and_completes(
 
     # Job poll: one processing → completed with inlined manifest.
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs/job-7",
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs/job-7",
     ).mock(
         side_effect=[
             httpx.Response(
@@ -519,10 +519,10 @@ def test_download_no_format_native_200_no_poll(
 
     slug = "pick-and-place-yam-v3"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_arm_detail(slug))
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
     ).respond(200, json=mock_arm_manifest_response)
 
     result = cli_runner.invoke(
@@ -597,13 +597,13 @@ def test_download_all_eight_formats_send_format_param(
 
     slug = "pick-and-place-yam-v3"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_arm_detail(slug))
 
     if fmt == "lerobot-v2":
         # Native — 200 + manifest, no polling.
         respx_mock.get(
-            f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+            f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
         ).respond(200, json=mock_arm_manifest_response)
         result = cli_runner.invoke(
             cli,
@@ -619,7 +619,7 @@ def test_download_all_eight_formats_send_format_param(
     else:
         # Non-native — 202 + job_id, then a single completed poll.
         respx_mock.get(
-            f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+            f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
         ).respond(
             202,
             json={
@@ -629,7 +629,7 @@ def test_download_all_eight_formats_send_format_param(
             },
         )
         respx_mock.get(
-            f"https://api.verlet.co/api/platform/v1/downloads/jobs/job-{fmt}",
+            f"https://client-api.verlet.co/api/platform/v1/downloads/jobs/job-{fmt}",
         ).respond(
             200,
             json={

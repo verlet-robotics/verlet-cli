@@ -37,7 +37,7 @@ def _seed_default_profile() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at=FAR_FUTURE,
@@ -68,7 +68,7 @@ def test_list_calls_authenticated_bundles_endpoint(
     _seed_default_profile()
 
     route = respx_mock.get(
-        f"https://api.verlet.co{BUNDLES_LIST_PATH}"
+        f"https://client-api.verlet.co{BUNDLES_LIST_PATH}"
     ).mock(
         return_value=httpx.Response(
             200, json={"items": [_sample_active_item()]}
@@ -94,7 +94,7 @@ def test_list_all_passes_include_inactive(tmp_home, cli_runner, respx_mock):
     _seed_default_profile()
 
     route = respx_mock.get(
-        f"https://api.verlet.co{BUNDLES_LIST_PATH}"
+        f"https://client-api.verlet.co{BUNDLES_LIST_PATH}"
     ).mock(
         return_value=httpx.Response(
             200,
@@ -135,7 +135,7 @@ def test_list_json_outputs_valid_json(tmp_home, cli_runner, respx_mock):
     _seed_default_profile()
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLES_LIST_PATH}"
+        f"https://client-api.verlet.co{BUNDLES_LIST_PATH}"
     ).mock(
         return_value=httpx.Response(
             200, json={"items": [_sample_active_item()]}
@@ -157,7 +157,7 @@ def test_list_empty_message(tmp_home, cli_runner, respx_mock):
     _seed_default_profile()
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLES_LIST_PATH}"
+        f"https://client-api.verlet.co{BUNDLES_LIST_PATH}"
     ).mock(return_value=httpx.Response(200, json={"items": []}))
 
     result = cli_runner.invoke(cli, ["bundles", "list"])
@@ -170,7 +170,7 @@ def test_list_401_prints_verbatim_auth_error(tmp_home, cli_runner, respx_mock):
     _seed_default_profile()
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLES_LIST_PATH}"
+        f"https://client-api.verlet.co{BUNDLES_LIST_PATH}"
     ).mock(
         return_value=httpx.Response(
             401, json={"detail": "Token revoked or expired"}

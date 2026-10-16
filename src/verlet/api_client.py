@@ -29,7 +29,7 @@ import httpx
 from .auth.credentials import upsert_profile
 from .auth.profiles import require_profile, resolve_profile_name
 
-DEFAULT_API_URL = "https://api.verlet.co"
+DEFAULT_API_URL = "https://client-api.verlet.co"
 REFRESH_PATH = "/api/platform/v1/auth/refresh"
 DEVICE_FLOW_ACCESS_TTL_SECONDS = 8 * 3600  # Research §7 — server JWT TTL is 480 min
 

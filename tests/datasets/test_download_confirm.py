@@ -23,13 +23,13 @@ def _seed_showcase_profile(_tmp_home, *, token: str = "sc-t0k3n") -> None:
         "default",
         kind="showcase_access_code",
         access_token=token,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
 
 
 def _ego_detail(respx_mock, *, episode_count: int = 10) -> None:
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
     ).respond(
         200,
         json={
@@ -51,7 +51,7 @@ def _ego_detail(respx_mock, *, episode_count: int = 10) -> None:
 
 def _ego_manifest(respx_mock, *, bytes_estimate: int | None = None) -> None:
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds/download"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds/download"
     ).respond(
         200,
         json={

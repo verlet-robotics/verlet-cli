@@ -53,12 +53,12 @@ def tmp_home(tmp_path, monkeypatch):
 
 @pytest.fixture
 def respx_mock():
-    """httpx mock router scoped to ``https://api.verlet.co``.
+    """httpx mock router scoped to ``https://client-api.verlet.co``.
 
     Tests register routes on the yielded ``respx.Router`` and assert call counts
     explicitly. ``assert_all_called=False`` so unused stubs don't fail the test.
     """
-    with respx.mock(base_url="https://api.verlet.co", assert_all_called=False) as router:
+    with respx.mock(base_url="https://client-api.verlet.co", assert_all_called=False) as router:
         yield router
 
 
