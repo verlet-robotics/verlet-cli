@@ -27,7 +27,7 @@ def _seed_default_profile() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at="2099-01-01T00:00:00+00:00",
@@ -77,7 +77,7 @@ def test_jobs_reattach_processing_then_completed(
 
     # First poll = processing, second = completed.
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/jobs/{job_id}",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/jobs/{job_id}",
     ).mock(
         side_effect=[
             httpx.Response(
@@ -152,7 +152,7 @@ def test_jobs_reattach_already_completed_downloads_immediately(
     ).respond(200, content=b"{}")
 
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/jobs/{job_id}",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/jobs/{job_id}",
     ).respond(
         200,
         json={
@@ -197,7 +197,7 @@ def test_jobs_reattach_failed_prints_error_and_exits_nonzero(
     job_id = "job-reattach-failed"
 
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/jobs/{job_id}",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/jobs/{job_id}",
     ).respond(
         200,
         json={
@@ -246,7 +246,7 @@ def test_jobs_no_id_lists_account_jobs(cli_runner, respx_mock, tmp_home):
 
     _seed_default_profile()
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs"
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs"
     ).respond(200, json=[_conversion("hdf5"), _conversion("rlds")])
 
     result = cli_runner.invoke(cli, ["datasets", "jobs"])
@@ -262,7 +262,7 @@ def test_jobs_slug_lists_dataset_conversions(cli_runner, respx_mock, tmp_home):
 
     _seed_default_profile()
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/imitate-cube/conversions"
+        "https://client-api.verlet.co/api/platform/v1/downloads/imitate-cube/conversions"
     ).respond(200, json=[_conversion("hdf5")])
 
     result = cli_runner.invoke(
@@ -279,7 +279,7 @@ def test_jobs_no_id_empty_account(cli_runner, respx_mock, tmp_home):
 
     _seed_default_profile()
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs"
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs"
     ).respond(200, json=[])
 
     result = cli_runner.invoke(cli, ["datasets", "jobs"])
@@ -296,7 +296,7 @@ def test_jobs_reattach_unknown_id_404(cli_runner, respx_mock, tmp_home):
     job_id = "does-not-exist"
 
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/jobs/{job_id}",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/jobs/{job_id}",
     ).respond(404, json={"detail": "Job not found"})
 
     result = cli_runner.invoke(

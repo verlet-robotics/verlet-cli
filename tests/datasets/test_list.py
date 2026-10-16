@@ -22,7 +22,7 @@ def _seed_default_profile(_tmp_home, *, kind: str = "device_flow", token: str = 
         "default",
         kind=kind,
         access_token=token,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
 
 
@@ -33,7 +33,7 @@ def test_kind_teleop_translates_to_modality_arm(
     from verlet.cli import cli
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets",
     ).respond(200, json=mock_catalog_list_response)
 
     result = cli_runner.invoke(cli, ["datasets", "list", "--kind", "teleop"])
@@ -65,7 +65,7 @@ def test_limit_clamps_at_100_and_prints_footer(
         "page_size": 100,
     }
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets",
     ).respond(200, json=big_resp)
 
     result = cli_runner.invoke(cli, ["datasets", "list", "--limit", "200"])
@@ -91,7 +91,7 @@ def test_since_round_trips_to_backend(
     from verlet.cli import cli
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets",
     ).respond(200, json=mock_catalog_list_response)
 
     result = cli_runner.invoke(
@@ -110,7 +110,7 @@ def test_anonymous_no_authorization(
     from verlet.cli import cli
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets",
     ).respond(200, json=mock_catalog_list_response)
 
     # tmp_home is empty: no credentials.json exists → resolve_profile_name
@@ -134,7 +134,7 @@ def test_authenticated_sends_bearer(
     _seed_default_profile(tmp_home, token="abc123")
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets",
     ).respond(200, json=mock_catalog_list_response)
 
     result = cli_runner.invoke(cli, ["datasets", "list"])
@@ -155,7 +155,7 @@ def test_json_output(
     from verlet.cli import cli
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets",
     ).respond(200, json=mock_catalog_list_response)
 
     result = cli_runner.invoke(cli, ["datasets", "list", "--json"])
@@ -174,7 +174,7 @@ def test_repeatable_task_flag(
     from verlet.cli import cli
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets",
     ).respond(200, json=mock_catalog_list_response)
 
     result = cli_runner.invoke(

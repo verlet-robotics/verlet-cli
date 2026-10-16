@@ -74,7 +74,7 @@ def auth_group() -> None:
     "--api-url",
     default=None,
     help=(
-        "Override API base URL (default: https://api.verlet.co or the "
+        "Override API base URL (default: https://client-api.verlet.co or the "
         "active profile's api_url)."
     ),
 )
@@ -102,7 +102,7 @@ def cmd_login(ctx: click.Context, api_url: str | None, no_browser: bool, kind: s
     doc = load_credentials()
     existing = doc["profiles"].get(profile_name, {})
     resolved_api_url = (
-        api_url or existing.get("api_url") or "https://api.verlet.co"
+        api_url or existing.get("api_url") or "https://client-api.verlet.co"
     )
 
     if kind == "showcase":

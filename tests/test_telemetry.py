@@ -181,13 +181,13 @@ def test_authenticated_client_includes_user_agent_header(tmp_home, respx_mock):
     upsert_profile(
         "default",
         kind="pat",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="pat_lookup_secret",
         identity={"id": "u1", "email": "test@example.com"},
     )
 
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/auth/me"
+        "https://client-api.verlet.co/api/platform/v1/auth/me"
     ).mock(return_value=httpx.Response(200, json={"id": "u1"}))
 
     client = AuthenticatedClient("default")
@@ -210,7 +210,7 @@ def test_anonymous_bundles_browse_includes_user_agent(tmp_home, respx_mock):
     import asyncio
 
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/research-bundles"
+        "https://client-api.verlet.co/api/platform/v1/catalog/research-bundles"
     ).mock(return_value=httpx.Response(200, json={"items": []}))
 
     asyncio.run(fetch_bundles_browse(limit=10))
@@ -235,7 +235,7 @@ def test_user_agent_privacy_payload_no_command_or_path(tmp_home, respx_mock):
     cfg.write_text(json.dumps({"telemetry_enabled": True}))
 
     route = respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/research-bundles"
+        "https://client-api.verlet.co/api/platform/v1/catalog/research-bundles"
     ).mock(return_value=httpx.Response(200, json={"items": []}))
 
     asyncio.run(fetch_bundles_browse(limit=10))

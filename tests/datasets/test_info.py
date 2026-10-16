@@ -30,7 +30,7 @@ def test_info_by_slug(cli_runner, respx_mock, tmp_home):
 
     detail = _arm_detail("pick-and-place-yam-v3")
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=detail)
 
     result = cli_runner.invoke(cli, ["datasets", "info", "pick-and-place-yam-v3"])
@@ -47,7 +47,7 @@ def test_info_by_uuid(cli_runner, respx_mock, tmp_home):
     uuid = "00000000-0000-0000-0000-000000000001"
     detail = _arm_detail("pick-and-place-yam-v3")
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{uuid}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{uuid}",
     ).respond(200, json=detail)
 
     result = cli_runner.invoke(cli, ["datasets", "info", uuid])
@@ -68,7 +68,7 @@ def test_info_json_output(cli_runner, respx_mock, tmp_home):
         "available_variants": ["processed"],
     }
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/foo",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/foo",
     ).respond(200, json=detail)
 
     result = cli_runner.invoke(cli, ["datasets", "info", "foo", "--json"])
@@ -84,7 +84,7 @@ def test_info_anonymous_public(cli_runner, respx_mock, tmp_home):
 
     detail = _arm_detail("pick-and-place-yam-v3")
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=detail)
 
     # tmp_home has no credentials.json → anonymous path.

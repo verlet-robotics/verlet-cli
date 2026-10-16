@@ -9,7 +9,7 @@ Schema (per Phase 28 Research §3-§5):
         "<name>": {
           "kind": "device_flow" | "pat" | "showcase_access_code" | "bundle_grant",
           "access_token": "<bearer-string>",
-          "api_url": "https://api.verlet.co",
+          "api_url": "https://client-api.verlet.co",
           ... kind-specific fields ...
         },
         ...
@@ -42,6 +42,10 @@ class CredentialsDoc(TypedDict):
     version: int
     default_profile: str
     profiles: dict[str, dict[str, Any]]
+
+
+LEGACY_API_URL = "https://api.verlet.co"
+CLIENT_API_URL = "https://client-api.verlet.co"
 
 
 def verlet_dir() -> Path:
@@ -89,6 +93,11 @@ def load_credentials() -> CredentialsDoc:
         )
     doc.setdefault("default_profile", "default")
     doc.setdefault("profiles", {})
+    for profile in doc["profiles"].values():
+        # The client surface moved off api.verlet.co; profiles saved before
+        # that keep working without a re-login (persisted on the next write).
+        if str(profile.get("api_url", "")).rstrip("/") == LEGACY_API_URL:
+            profile["api_url"] = CLIENT_API_URL
     return doc
 
 

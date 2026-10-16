@@ -16,7 +16,7 @@ def _seed() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at=FAR_FUTURE,
@@ -42,7 +42,7 @@ def _sample_dest(name: str = "my-s3") -> dict:
 def test_list_renders_table(tmp_home, cli_runner, respx_mock):
     """`destinations list` GETs /destinations with the Bearer header."""
     _seed()
-    route = respx_mock.get(f"https://api.verlet.co{DEST_PATH}").mock(
+    route = respx_mock.get(f"https://client-api.verlet.co{DEST_PATH}").mock(
         return_value=httpx.Response(200, json=[_sample_dest()])
     )
 
@@ -58,7 +58,7 @@ def test_list_renders_table(tmp_home, cli_runner, respx_mock):
 def test_list_empty_message(tmp_home, cli_runner, respx_mock):
     """An empty destination list shows the dim 'add one' hint."""
     _seed()
-    respx_mock.get(f"https://api.verlet.co{DEST_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{DEST_PATH}").mock(
         return_value=httpx.Response(200, json=[])
     )
 
@@ -70,7 +70,7 @@ def test_list_empty_message(tmp_home, cli_runner, respx_mock):
 def test_list_json_flag(tmp_home, cli_runner, respx_mock):
     """`--json` emits the raw destinations list."""
     _seed()
-    respx_mock.get(f"https://api.verlet.co{DEST_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{DEST_PATH}").mock(
         return_value=httpx.Response(200, json=[_sample_dest()])
     )
 
@@ -91,7 +91,7 @@ def test_list_unauthenticated(tmp_home, cli_runner, respx_mock):
 def test_list_401_friendly_error(tmp_home, cli_runner, respx_mock):
     """A backend 401 surfaces as a friendly error, not a traceback."""
     _seed()
-    respx_mock.get(f"https://api.verlet.co{DEST_PATH}").mock(
+    respx_mock.get(f"https://client-api.verlet.co{DEST_PATH}").mock(
         return_value=httpx.Response(401, json={"detail": "Token expired"})
     )
 

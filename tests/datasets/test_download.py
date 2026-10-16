@@ -25,7 +25,7 @@ def _seed_default_profile(_tmp_home, *, token: str = "t0k3n") -> None:
         "default",
         kind="device_flow",
         access_token=token,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
 
 
@@ -65,10 +65,10 @@ def test_arm_dispatch(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=_arm_detail("pick-and-place-yam-v3"))
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
+        "https://client-api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
     ).respond(200, json=mock_arm_manifest_response)
 
     result = cli_runner.invoke(
@@ -93,10 +93,10 @@ def test_ego_dispatch(
 
     slug = "kitchen-cooking-aria-spring-2026"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_ego_detail(slug))
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/ego/datasets/{slug}/manifest",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/ego/datasets/{slug}/manifest",
     ).respond(200, json=mock_ego_manifest_response)
 
     result = cli_runner.invoke(
@@ -131,7 +131,7 @@ def test_variant_rejected_on_arm(cli_runner, respx_mock, tmp_home):
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=_arm_detail("pick-and-place-yam-v3"))
 
     result = cli_runner.invoke(
@@ -162,7 +162,7 @@ def test_variant_required_on_ego(cli_runner, respx_mock, tmp_home):
 
     slug = "kitchen-cooking-aria-spring-2026"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_ego_detail(slug))
 
     result = cli_runner.invoke(
@@ -193,11 +193,11 @@ def test_non_native_format_now_triggers_conversion(
 
     slug = "pick-and-place-yam-v3"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_arm_detail(slug))
     # 202 enqueue → single completed poll inlining the manifest.
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
     ).respond(
         202,
         json={
@@ -207,7 +207,7 @@ def test_non_native_format_now_triggers_conversion(
         },
     )
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/jobs/regression-job",
+        "https://client-api.verlet.co/api/platform/v1/downloads/jobs/regression-job",
     ).respond(
         200,
         json={
@@ -255,10 +255,10 @@ def test_resume_skips_existing(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=_arm_detail("pick-and-place-yam-v3"))
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
+        "https://client-api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
     ).respond(200, json=mock_arm_manifest_response)
 
     fake_result = DownloadResult(downloaded=0, skipped=3, failed=0)
@@ -295,10 +295,10 @@ def test_force_overrides_resume(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=_arm_detail("pick-and-place-yam-v3"))
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
+        "https://client-api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
     ).respond(200, json=mock_arm_manifest_response)
 
     fake_result = DownloadResult(downloaded=3, skipped=0, failed=0)
@@ -343,10 +343,10 @@ def test_dry_run_no_writes(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=_arm_detail("pick-and-place-yam-v3"))
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
+        "https://client-api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
     ).respond(200, json=mock_arm_manifest_response)
 
     with patch(
@@ -373,10 +373,10 @@ def test_partial_failure_exits_nonzero(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=_arm_detail("pick-and-place-yam-v3"))
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
+        "https://client-api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
     ).respond(200, json=mock_arm_manifest_response)
 
     fake_result = DownloadResult(downloaded=2, skipped=0, failed=1)
@@ -432,10 +432,10 @@ def test_format_lerobot_v2_happy_path(
     _seed_default_profile(tmp_home)
 
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets/pick-and-place-yam-v3",
     ).respond(200, json=_arm_detail("pick-and-place-yam-v3"))
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
+        "https://client-api.verlet.co/api/platform/v1/downloads/pick-and-place-yam-v3/manifest",
     ).respond(200, json=mock_arm_manifest_response)
 
     fake_result = DownloadResult(downloaded=3, skipped=0, failed=0)

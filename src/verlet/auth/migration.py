@@ -67,7 +67,7 @@ def migrate_legacy_token_json() -> bool:
     doc["profiles"]["default"] = {
         "kind": "showcase_access_code",
         "access_token": access_token,
-        "api_url": legacy_doc.get("api_url") or "https://api.verlet.co",
+        "api_url": legacy_doc.get("api_url") or "https://client-api.verlet.co",
         "customer_name": legacy_doc.get("customer_name"),
         "migrated_at": datetime.now(timezone.utc).isoformat(),
     }

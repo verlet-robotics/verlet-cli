@@ -23,7 +23,7 @@ def _seed_default_profile() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at="2099-01-01T00:00:00+00:00",
@@ -53,11 +53,11 @@ def test_detach_with_format_hdf5_prints_job_id_and_exits_zero(
 
     slug = "pick-and-place-yam-v3"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_arm_detail(slug))
     # Manifest returns 202 + job_id.
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
     ).respond(
         202,
         json={
@@ -134,11 +134,11 @@ def test_detach_with_native_200_response_errors(
 
     slug = "pick-and-place-yam-v3"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_arm_detail(slug))
     # 200 native manifest (no job_id).
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
     ).respond(
         200,
         json={
@@ -177,10 +177,10 @@ def test_detach_quiet_prints_only_job_id(
 
     slug = "pick-and-place-yam-v3"
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
+        f"https://client-api.verlet.co/api/platform/v1/catalog/datasets/{slug}",
     ).respond(200, json=_arm_detail(slug))
     respx_mock.get(
-        f"https://api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
+        f"https://client-api.verlet.co/api/platform/v1/downloads/{slug}/manifest",
     ).respond(
         202,
         json={

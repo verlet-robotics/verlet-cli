@@ -16,7 +16,7 @@ def _seed_showcase_profile(_tmp_home, *, token: str = "sc-t0k3n") -> None:
         "default",
         kind="showcase_access_code",
         access_token=token,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
 
 
@@ -25,7 +25,7 @@ def _seed_platform_profile(_tmp_home, *, token: str = "pf-t0k3n") -> None:
         "default",
         kind="device_flow",
         access_token=token,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
 
 
@@ -40,7 +40,7 @@ def test_list_showcase_credential_hits_gated_endpoint(
     from verlet.cli import cli
 
     _seed_showcase_profile(tmp_home)
-    respx_mock.get("https://api.verlet.co/api/v1/showcase/datasets").respond(
+    respx_mock.get("https://client-api.verlet.co/api/v1/showcase/datasets").respond(
         200,
         json={
             "datasets": [
@@ -75,7 +75,7 @@ def test_list_platform_credential_hits_platform_endpoint(
 
     _seed_platform_profile(tmp_home)
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/catalog/datasets"
+        "https://client-api.verlet.co/api/platform/v1/catalog/datasets"
     ).respond(200, json=mock_catalog_list_response)
 
     result = cli_runner.invoke(cli, ["datasets", "list"])
@@ -95,7 +95,7 @@ def test_info_showcase_shows_grants_no_segment_ids(
     _seed_showcase_profile(tmp_home)
     leak_uuid = "deadbeef-0000-0000-0000-000000000000"
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
     ).respond(
         200,
         json={
@@ -133,7 +133,7 @@ def test_info_showcase_renders_quota_and_expiry(cli_runner, respx_mock, tmp_home
 
     _seed_showcase_profile(tmp_home)
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
     ).respond(
         200,
         json={
@@ -188,7 +188,7 @@ def test_download_showcase_hits_gated_download_endpoint(
 
     _seed_showcase_profile(tmp_home)
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
     ).respond(
         200,
         json={
@@ -207,7 +207,7 @@ def test_download_showcase_hits_gated_download_endpoint(
         },
     )
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds/download"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds/download"
     ).respond(
         200,
         json={
@@ -258,7 +258,7 @@ def test_download_showcase_limit_forwarded_as_query_param(
 
     _seed_showcase_profile(tmp_home)
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
     ).respond(
         200,
         json={
@@ -277,7 +277,7 @@ def test_download_showcase_limit_forwarded_as_query_param(
         },
     )
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds/download"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds/download"
     ).respond(
         200,
         json={
@@ -346,7 +346,7 @@ def test_download_showcase_ego_without_variant_friendly_error(
 
     _seed_showcase_profile(tmp_home)
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/granted-ego-ds"
     ).respond(
         200,
         json={
@@ -404,7 +404,7 @@ def test_download_showcase_reuses_cached_manifest_on_rerun(
 
     _seed_showcase_profile(tmp_home)
     respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/teleop-ds"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/teleop-ds"
     ).respond(
         200,
         json={
@@ -414,7 +414,7 @@ def test_download_showcase_reuses_cached_manifest_on_rerun(
         },
     )
     manifest_route = respx_mock.get(
-        "https://api.verlet.co/api/v1/showcase/datasets/teleop-ds/download"
+        "https://client-api.verlet.co/api/v1/showcase/datasets/teleop-ds/download"
     ).respond(
         200,
         json={

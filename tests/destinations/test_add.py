@@ -11,7 +11,7 @@ import httpx
 from verlet.auth.credentials import upsert_profile
 from verlet.cli import cli
 
-BASE = "https://api.verlet.co/api/platform/v1/downloads/destinations"
+BASE = "https://client-api.verlet.co/api/platform/v1/downloads/destinations"
 PROVIDERS_URL = f"{BASE}/providers"
 CONNECT_INIT_URL = f"{BASE}/connect/init"
 CONNECT_CALLBACK_URL = f"{BASE}/connect/callback"
@@ -23,7 +23,7 @@ def _seed() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at=FAR_FUTURE,

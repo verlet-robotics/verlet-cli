@@ -61,13 +61,13 @@ def test_profile_isolation(tmp_home, cli_runner):
         "default",
         kind="device_flow",
         access_token="jwt_default",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
     creds.upsert_profile(
         "ci",
         kind="pat",
         access_token="pat_a_b",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
     assert require_profile("default")["access_token"] == "jwt_default"
     assert require_profile("ci")["access_token"] == "pat_a_b"
@@ -89,7 +89,7 @@ def test_ci_fallback_synthesizes_from_env(tmp_home, monkeypatch):
     profile = require_profile("ci")
     assert profile["kind"] == "pat"
     assert profile["access_token"] == "pat_envlookup_envsecret"
-    assert profile["api_url"] == "https://api.verlet.co"
+    assert profile["api_url"] == "https://client-api.verlet.co"
 
 
 def test_ci_fallback_honors_VERLET_API_URL(tmp_home, monkeypatch):
@@ -122,7 +122,7 @@ def test_on_disk_ci_profile_takes_precedence_over_env(tmp_home, monkeypatch):
         "ci",
         kind="pat",
         access_token="pat_ondisk_ondisk",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
     )
     monkeypatch.setenv("VERLET_CI_TOKEN", "pat_env_env")
     profile = require_profile("ci")

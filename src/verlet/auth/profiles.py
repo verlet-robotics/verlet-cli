@@ -18,7 +18,7 @@ from .credentials import get_profile, load_credentials
 CI_PROFILE_NAME = "ci"
 CI_TOKEN_ENV = "VERLET_CI_TOKEN"
 CI_API_URL_ENV = "VERLET_API_URL"
-_DEFAULT_API_URL = "https://api.verlet.co"
+_DEFAULT_API_URL = "https://client-api.verlet.co"
 
 
 class ProfileNotFoundError(click.ClickException):

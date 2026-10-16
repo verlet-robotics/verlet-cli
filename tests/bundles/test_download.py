@@ -43,7 +43,7 @@ def _seed_default_profile() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at=FAR_FUTURE,
@@ -131,7 +131,7 @@ def test_download_variant_raw_zero_network_call_exits_2(
     # Register a route that would catch any unintended HTTP call. If the
     # validator works correctly, this route is never called.
     respx_mock.get(
-        "https://api.verlet.co/api/platform/v1/bundles/any-bundle"
+        "https://client-api.verlet.co/api/platform/v1/bundles/any-bundle"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail()))
 
     result = cli_runner.invoke(
@@ -162,16 +162,16 @@ def test_download_fans_out_per_dataset_manifests(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
 
     kitchen_route = respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(200, json=_arm_manifest_200("kitchen-pickplace"))
     )
     tabletop_route = respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
     ).mock(
         return_value=httpx.Response(200, json=_arm_manifest_200("tabletop-stack"))
     )
@@ -202,18 +202,18 @@ def test_download_format_applied_to_all_datasets(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
 
     kitchen_route = respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(
             200, json={**_arm_manifest_200("kitchen-pickplace"), "format": "hdf5"}
         )
     )
     tabletop_route = respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
     ).mock(
         return_value=httpx.Response(
             200, json={**_arm_manifest_200("tabletop-stack"), "format": "hdf5"}
@@ -250,11 +250,11 @@ def test_download_400_on_one_dataset_fails_fast_no_partial_writes(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
 
     kitchen_route = respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(
             400,
@@ -262,7 +262,7 @@ def test_download_400_on_one_dataset_fails_fast_no_partial_writes(
         )
     )
     tabletop_route = respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
     ).mock(
         return_value=httpx.Response(200, json=_arm_manifest_200("tabletop-stack"))
     )
@@ -303,15 +303,15 @@ def test_download_writes_bundle_manifest_json_at_root(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
     respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(200, json=_arm_manifest_200("kitchen-pickplace"))
     )
     respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
     ).mock(
         return_value=httpx.Response(200, json=_arm_manifest_200("tabletop-stack"))
     )
@@ -347,7 +347,7 @@ def test_download_custom_out_dir_overrides_default(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(
         return_value=httpx.Response(
             200,
@@ -366,7 +366,7 @@ def test_download_custom_out_dir_overrides_default(
         )
     )
     respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='single-ds')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='single-ds')}"
     ).mock(return_value=httpx.Response(200, json=_arm_manifest_200("single-ds")))
 
     custom = tmp_home / "my-custom-out"
@@ -393,15 +393,15 @@ def test_download_disk_layout_per_dataset_subdir(
     bundle_id = "stanford-egocentric-2024"
 
     respx_mock.get(
-        f"https://api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
+        f"https://client-api.verlet.co{BUNDLE_DETAIL_PATH_FMT.format(bundle_id=bundle_id)}"
     ).mock(return_value=httpx.Response(200, json=_bundle_detail(bundle_id)))
     respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='kitchen-pickplace')}"
     ).mock(
         return_value=httpx.Response(200, json=_arm_manifest_200("kitchen-pickplace"))
     )
     respx_mock.get(
-        f"https://api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
+        f"https://client-api.verlet.co{ARM_MANIFEST_PATH_FMT.format(slug='tabletop-stack')}"
     ).mock(
         return_value=httpx.Response(200, json=_arm_manifest_200("tabletop-stack"))
     )

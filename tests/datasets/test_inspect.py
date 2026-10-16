@@ -9,11 +9,11 @@ from verlet.auth.credentials import upsert_profile
 from verlet.cli import cli
 
 QC_URL = (
-    "https://api.verlet.co/api/platform/v1/catalog/datasets/"
+    "https://client-api.verlet.co/api/platform/v1/catalog/datasets/"
     "imitate-cube/qc-distributions"
 )
 ANALYTICS_URL = (
-    "https://api.verlet.co/api/platform/v1/catalog/datasets/imitate-cube/analytics"
+    "https://client-api.verlet.co/api/platform/v1/catalog/datasets/imitate-cube/analytics"
 )
 
 
@@ -21,7 +21,7 @@ def _seed() -> None:
     upsert_profile(
         "default",
         kind="device_flow",
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="jwt.access.value",
         refresh_token="rt",
         expires_at="2099-01-01T00:00:00+00:00",

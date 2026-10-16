@@ -8,7 +8,7 @@ import httpx
 from verlet.auth.credentials import upsert_profile
 from verlet.cli import cli
 
-STATS_URL = "https://api.verlet.co/api/v1/showcase/operation-stats"
+STATS_URL = "https://client-api.verlet.co/api/v1/showcase/operation-stats"
 FAR_FUTURE = "2099-01-01T00:00:00+00:00"
 
 _STATS = {
@@ -27,7 +27,7 @@ def _seed(kind: str = "showcase_access_code") -> None:
     upsert_profile(
         "default",
         kind=kind,
-        api_url="https://api.verlet.co",
+        api_url="https://client-api.verlet.co",
         access_token="showcase.jwt.value",
         expires_at=FAR_FUTURE,
     )
